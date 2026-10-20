@@ -40,7 +40,6 @@
     ]
   },
   "notExecuted": [
-    "GitHub CI (pending initial IndustryConnect push)",
     "Docker image execution",
     "real browser and accessibility review",
     "HTTPS staging",
@@ -48,5 +47,23 @@
     "backup restore and rollback",
     "independent security review"
   ],
-  "liveTransactions": "disabled; source lock retained"
+  "liveTransactions": "disabled; source lock retained",
+  "githubCI": {
+    "result": "pass",
+    "applicationCommit": "0ac9f215e9d77d9b096b4b92a68bb66efca6a11a",
+    "runUrl": "https://github.com/mynameiscod/IndustryConnect/actions/runs/39396288669",
+    "checks": [
+      "strict type checks",
+      "35 automated tests",
+      "OpenAPI drift",
+      "production build",
+      "dependency audit",
+      "Docker image build"
+    ],
+    "limits": [
+      "Docker image build only, not container runtime certification",
+      "no real provider calls",
+      "not HTTPS staging or live-transaction approval"
+    ]
+  }
 }
