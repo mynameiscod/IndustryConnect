@@ -26,6 +26,7 @@
     "predev": "npm run build -w @market/contracts",
     "api:contracts": "node --import tsx scripts/generate-openapi.ts",
     "smoke:deployment": "node scripts/smoke-deployment.mjs",
+    "preview:homepage": "npm run build -w @market/contracts && node scripts/preview-homepage.mjs",
     "format": "prettier --write apps packages scripts docs *.json *.yaml .github"
   },
   "devDependencies": {

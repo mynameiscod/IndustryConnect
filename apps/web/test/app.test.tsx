@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { App } from '../src/App.js';
 const expert = {
@@ -39,20 +39,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('customer UI', () => {
-  it('opens mobile navigation and closes it after following a link', async () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>,
-    );
-    await screen.findByText('Demo Expert');
-    const toggle = screen.getByRole('button', { name: 'Toggle navigation' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    fireEvent.click(screen.getByRole('link', { name: 'Explore experts' }));
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  });
   it('shows API-backed experts without fabricated ratings', async () => {
     render(
       <MemoryRouter>
@@ -93,6 +79,71 @@ describe('customer UI', () => {
     );
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy();
     expect(await screen.findByText('Our controlled beta is invitation-only.')).toBeTruthy();
+  });
+  it('restores shareable search filters and clears the entire search', async () => {
+    render(
+      <MemoryRouter initialEntries={['/?q=design&mode=online&language=Telugu&price=2500']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Demo Expert');
+    expect((screen.getByLabelText('Search experts') as HTMLInputElement).value).toBe('design');
+    expect((screen.getByLabelText('Language') as HTMLSelectElement).value).toBe('Telugu');
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => {
+        const value = String(url);
+        return (
+          value.includes('q=design') &&
+          value.includes('mode=online') &&
+          value.includes('language=Telugu') &&
+          value.includes('maxPrice=250000')
+        );
+      }),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    await waitFor(() =>
+      expect((screen.getByLabelText('Search experts') as HTMLInputElement).value).toBe(''),
+    );
+    expect((screen.getByLabelText('Maximum price') as HTMLSelectElement).value).toBe('');
+    expect((screen.getByLabelText('Session format') as HTMLSelectElement).value).toBe('');
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(([url]) => String(url) === '/api/experts?page=1'),
+      ).toBe(true),
+    );
+  });
+  it('turns a goal shortcut into a real expert search', async () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Demo Expert');
+    fireEvent.click(screen.getByRole('button', { name: /Build something better/ }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('q=system+design')),
+      ).toBe(true),
+    );
+    expect((screen.getByLabelText('Search experts') as HTMLInputElement).value).toBe(
+      'system design',
+    );
+  });
+  it('closes the mobile navigation after selecting a destination', async () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', {
+        name: 'How it works',
+      }),
+    );
+    await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'));
   });
   it('surfaces API errors without showing fake sample profiles', async () => {
     vi.mocked(fetch).mockImplementation(

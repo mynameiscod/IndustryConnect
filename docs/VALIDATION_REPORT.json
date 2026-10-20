@@ -3,7 +3,7 @@
   "typecheck": "pass",
   "productionBuild": "pass",
   "automatedTests": {
-    "passed": 35,
+    "passed": 40,
     "failed": 0,
     "suites": 4,
     "integrationDatabase": "MongoDB 7.0.24 replica set",
@@ -18,7 +18,7 @@
     "total": 0
   },
   "compiledDeploymentSmoke": {
-    "executedAt": "2026-10-20T08:36:12.870Z",
+    "executedAt": "2026-10-20T13:43:19.514Z",
     "result": "pass",
     "environment": "local compiled Node services + temporary MongoDB 7.0 replica set",
     "checks": [
@@ -64,6 +64,19 @@
       "Docker image build only, not container runtime certification",
       "no real provider calls",
       "not HTTPS staging or live-transaction approval"
-    ]
+    ],
+    "scope": "Historical baseline run; check GitHub Actions for the homepage commit result."
+  },
+  "homepage": {
+    "date": "2026-10-20",
+    "basedOnRemoteCommit": "fe3816151954b7f8e6e2577ccd1b2fc628e9e622",
+    "unitAndIntegrationTests": 40,
+    "uiTests": 7,
+    "productionJSKilobytes": 426.8,
+    "productionJSGzipKilobytes": 127.95,
+    "heroWebpBytes": 103666,
+    "browserLayoutQA": "blocked: local browser launch denied; cloud browser cannot reach local server",
+    "standalonePreview": "separate self-contained HTML with fictional profiles; no transactions",
+    "liveTransactions": "disabled; source lock unchanged"
   }
 }

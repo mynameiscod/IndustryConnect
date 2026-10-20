@@ -68,7 +68,7 @@ try {
   }
   await eventually(async () => (await fetch(`${base}/api/ready`)).ok);
   const page = await fetch(base);
-  if (!page.ok || !(await page.text()).includes('Expert Market'))
+  if (!page.ok || !(await page.text()).includes('IndustryConnect'))
     throw new Error('SPA serving failed');
   const deep = await fetch(`${base}/dashboard`);
   if (!deep.ok || !deep.headers.get('content-security-policy'))

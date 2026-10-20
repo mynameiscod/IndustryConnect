@@ -7,29 +7,27 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowDown,
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
   Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
   Compass,
   Globe,
   MapPin,
-  Search,
   ShieldCheck,
-  Sparkles,
   Star,
   Video,
   X,
 } from 'lucide-react';
 import { formatMoney } from '@market/contracts';
 import { api, checkout, loadScript, post } from './api.js';
+import { HomePage } from './HomePage.js';
+import { SiteHeader, SiteFooter } from './SiteShell.js';
 
 type User = { id: string; name: string; email?: string; emailVerified: boolean; roles: string[] };
 const Auth = createContext<{ user: User | null; loading: boolean; refresh: () => Promise<void> }>({
@@ -155,7 +153,6 @@ function Protected({ children, admin = false }: { children: ReactNode; admin?: b
   return children;
 }
 export function App() {
-  const [navOpen, setNavOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true);
   const refresh = async () => {
@@ -179,79 +176,16 @@ export function App() {
         >
           Skip to content
         </a>
-        <div className="bg-primary-subtle text-primary-emphasis text-center small py-2 px-3">
-          <span className="d-none" /> BUILDING BETTER CONNECTIONS{' '}
-          <span className="ms-2">Private beta · November 2026</span>
-        </div>
-        <header className="navbar navbar-expand-lg bg-white border-bottom px-3 px-lg-5 py-3 gap-3">
-          <Link to="/" className="navbar-brand d-inline-flex align-items-center fw-bold m-0">
-            <span className="d-inline-flex align-items-center justify-content-center bg-primary text-white rounded p-2 me-2">
-              <Compass size={24} />
-            </span>
-            expert<span className="fw-normal">market</span>
-            <span className="text-primary">.</span>
-          </Link>
-          <button
-            className="navbar-toggler ms-auto"
-            type="button"
-            aria-controls="main-navigation"
-            aria-expanded={navOpen}
-            aria-label="Toggle navigation"
-            onClick={() => setNavOpen(!navOpen)}
-          >
-            <span className="navbar-toggler-icon" />
-          </button>
-          <div
-            id="main-navigation"
-            className={`collapse navbar-collapse gap-3 ${navOpen ? 'show' : ''}`}
-          >
-            <nav
-              onClick={() => setNavOpen(false)}
-              className="navbar-nav flex-column flex-lg-row flex-wrap gap-2 align-items-lg-center py-2 py-lg-0"
-              aria-label="Main navigation"
-            >
-              <NavLink className="nav-link" to="/">
-                Explore experts
-              </NavLink>
-              <NavLink className="nav-link" to="/studio">
-                Become an expert <ArrowUpRight size={14} />
-              </NavLink>
-              {user && (
-                <NavLink className="nav-link" to="/dashboard">
-                  My bookings
-                </NavLink>
-              )}
-              {user?.roles.includes('admin') && (
-                <NavLink className="nav-link" to="/admin">
-                  Admin
-                </NavLink>
-              )}
-            </nav>
-            <div className="d-flex align-items-center gap-3 ms-lg-auto">
-              {user ? (
-                <>
-                  <span className="small text-body-secondary">Hi, {user.name.split(' ')[0]}</span>
-                  <button
-                    className="btn btn-link p-0"
-                    onClick={async () => {
-                      await post('/auth/logout');
-                      await refresh();
-                    }}
-                  >
-                    Sign out
-                  </button>
-                </>
-              ) : (
-                <Link className="btn btn-primary btn-sm" to="/auth">
-                  Sign in <ArrowRight size={15} />
-                </Link>
-              )}
-            </div>
-          </div>
-        </header>
+        <SiteHeader
+          user={user}
+          onSignOut={async () => {
+            await post('/auth/logout');
+            await refresh();
+          }}
+        />
         <main id="main" className="flex-grow-1">
           <Routes>
-            <Route path="/" element={<Explore />} />
+            <Route path="/" element={<HomePage />} />
             <Route path="/experts/:slug" element={<ExpertDetail />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route
@@ -289,344 +223,9 @@ export function App() {
             />
           </Routes>
         </main>
-        <footer className="container d-flex flex-wrap align-items-center gap-3 border-top py-4 mt-5 small">
-          <Link className="navbar-brand d-inline-flex align-items-center fw-bold m-0" to="/">
-            expertmarket.
-          </Link>
-          <p>A little perspective. A meaningful next step.</p>
-          <Link to="/guidelines">Beta booking guidelines</Link>
-          <span>Independent marketplace · Controlled beta</span>
-        </footer>
+        <SiteFooter />
       </div>
     </Auth.Provider>
-  );
-}
-
-function Explore() {
-  const [search, setSearch] = useState(''),
-    [query, setQuery] = useState(''),
-    [category, setCategory] = useState(''),
-    [mode, setMode] = useState(''),
-    [language, setLanguage] = useState(''),
-    [price, setPrice] = useState(''),
-    [page, setPage] = useState(1),
-    [catPage, setCatPage] = useState(1);
-  const categories = useData(`/categories?limit=12&page=${catPage}`);
-  const params = new URLSearchParams({
-    page: String(page),
-    ...(query ? { q: query } : {}),
-    ...(category ? { category } : {}),
-    ...(mode ? { mode } : {}),
-    ...(language ? { language } : {}),
-    ...(price ? { maxPrice: String(Number(price) * 100) } : {}),
-  });
-  const experts = useData(`/experts?${params}`);
-  function filter(set: (v: string) => void, value: string) {
-    set(value);
-    setPage(1);
-  }
-  return (
-    <>
-      <section className="container py-5">
-        <div className="row g-4 align-items-center">
-          <div className="col-lg-7">
-            <div>
-              <div className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-                <span /> GOOD PEOPLE. REAL PERSPECTIVE.
-              </div>
-              <h1>
-                Your next chapter.
-                <br />
-                <em>The right expert.</em>
-              </h1>
-              <p>
-                Big questions are easier with the right person.
-                <br className="d-none d-md-block" /> Find thoughtful guidance for your career,
-                business, and beyond.
-              </p>
-              <form
-                className="d-flex flex-wrap align-items-center gap-2 bg-white border rounded p-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setQuery(search);
-                  setPage(1);
-                }}
-              >
-                <Search size={22} />
-                <input
-                  className="form-control"
-                  aria-label="Search experts"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="What would you like help with?"
-                />
-                <button className="btn btn-primary" type="submit">
-                  Find an expert <ArrowRight size={18} />
-                </button>
-              </form>
-              <div className="d-flex flex-wrap gap-3 small text-body-secondary mt-3">
-                <span>
-                  <ShieldCheck size={17} /> Verified professionals
-                </span>
-                <span>
-                  <CalendarDays size={17} /> Time that works for you
-                </span>
-                <span>
-                  <CheckCircle2 size={17} /> Transparent pricing
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="col-lg-5">
-            <div className="card bg-primary-subtle border-0 p-4 p-lg-5 gap-3" aria-hidden="true">
-              <div className="d-none" />
-              <div className="d-none" />
-              <div className="d-flex align-items-center gap-2 small">
-                <span className="text-primary">
-                  <Sparkles size={18} />
-                </span>
-                A fresh perspective
-              </div>
-              <div className="card border-0 bg-white p-4">
-                <div className="d-flex justify-content-between align-items-center">
-                  <span className="text-primary">
-                    <Compass size={68} strokeWidth={1} />
-                  </span>
-                  <span className="display-5 text-primary">✳</span>
-                </div>
-                <p>
-                  One conversation.
-                  <br />A clearer direction.
-                </p>
-                <div className="border-top" />
-                <div className="d-flex justify-content-between align-items-center mt-3 small">
-                  <span>MAKE YOUR NEXT MOVE</span>
-                  <ArrowUpRight size={26} />
-                </div>
-              </div>
-              <div className="d-flex align-items-center gap-2 small">
-                <span className="text-primary">
-                  <Check size={18} />
-                </span>
-                Your next step starts here
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-      <div className="container border-top d-flex justify-content-between align-items-center py-3 text-body-secondary small">
-        <span>EXPLORE POSSIBILITIES</span>
-        <ArrowDown size={17} />
-      </div>
-      <section className="container py-4">
-        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-4">
-          <div>
-            <div className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-              PEOPLE WHO CAN HELP
-            </div>
-            <h2>
-              Find your kind of expert<span>.</span>
-            </h2>
-          </div>
-          <p>Choose a conversation that moves you forward.</p>
-        </div>
-        <div className="d-flex flex-wrap gap-2 border-bottom pb-3">
-          <button
-            className={`btn btn-outline-primary btn-sm ${!category ? 'active' : ''}`}
-            onClick={() => filter(setCategory, '')}
-          >
-            All expertise
-          </button>
-          {categories.data?.items.map((cat: any) => (
-            <button
-              key={cat._id}
-              className={`btn btn-outline-primary btn-sm ${category === cat._id ? 'active' : ''}`}
-              onClick={() => filter(setCategory, cat._id)}
-            >
-              {cat.name}
-            </button>
-          ))}
-          {categories.data?.total > 12 && (
-            <button
-              className="btn btn-outline-primary btn-sm"
-              onClick={() => setCatPage((p) => (p * 12 >= categories.data.total ? 1 : p + 1))}
-            >
-              More categories <ChevronRight size={14} />
-            </button>
-          )}
-        </div>
-        <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 my-4">
-          <div className="d-flex flex-wrap gap-2">
-            <select
-              className="form-select w-auto flex-grow-1"
-              aria-label="Session format"
-              value={mode}
-              onChange={(e) => filter(setMode, e.target.value)}
-            >
-              <option value="">Any format</option>
-              <option value="online">Online sessions</option>
-              <option value="in_person">In person</option>
-            </select>
-            <select
-              className="form-select w-auto flex-grow-1"
-              aria-label="Language"
-              value={language}
-              onChange={(e) => filter(setLanguage, e.target.value)}
-            >
-              <option value="">Any language</option>
-              <option>English</option>
-              <option>Telugu</option>
-              <option>Hindi</option>
-            </select>
-            <select
-              className="form-select w-auto flex-grow-1"
-              aria-label="Maximum price"
-              value={price}
-              onChange={(e) => filter(setPrice, e.target.value)}
-            >
-              <option value="">Any price</option>
-              <option value="1000">Under ₹1,000</option>
-              <option value="2500">Under ₹2,500</option>
-              <option value="5000">Under ₹5,000</option>
-            </select>
-          </div>
-          <span>
-            {experts.data ? `${experts.data.total} experts to explore` : 'Find a good fit'}
-          </span>
-        </div>
-        {experts.loading ? (
-          <Loader />
-        ) : experts.error ? (
-          <Alert>
-            {experts.error}{' '}
-            <button className="btn btn-link p-0" onClick={experts.reload}>
-              Try again
-            </button>
-          </Alert>
-        ) : experts.data?.items.length ? (
-          <div className="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4">
-            {experts.data.items.map((expert: any, i: number) => (
-              <ExpertCard key={expert.id} expert={expert} index={i} />
-            ))}
-          </div>
-        ) : (
-          <Empty title="A good match is worth finding">
-            Try another category or clear your filters. New verified experts will appear here as the
-            beta opens.
-          </Empty>
-        )}
-        <Pager page={page} setPage={setPage} total={experts.data?.total ?? 0} />
-      </section>
-      <section className="container row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4 mx-auto py-5">
-        <div>
-          <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-            LESS FRICTION. MORE CLARITY.
-          </span>
-          <h2>
-            From a question
-            <br />
-            to a conversation.
-          </h2>
-          <Link className="icon-link" to="/guidelines">
-            How booking works <ArrowUpRight size={18} />
-          </Link>
-        </div>
-        {[
-          ['01', 'Find your person', 'Explore expertise, services and real customer reviews.'],
-          ['02', 'Make a little time', 'Choose a session and a time that fits your schedule.'],
-          ['03', 'Take your next step', 'Meet your expert and leave with a clearer direction.'],
-        ].map(([number, title, text]) => (
-          <article key={number}>
-            <div className="card card-body h-100 gap-2">
-              <span>{number}</span>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
-          </article>
-        ))}
-      </section>
-      <section className="container bg-primary text-white rounded p-4 p-lg-5 my-5 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-4">
-        <div>
-          <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-            YOUR EXPERIENCE HAS VALUE
-          </span>
-          <h2>Someone needs what you know.</h2>
-          <p>Share your expertise, on your terms.</p>
-        </div>
-        <Link className="btn btn-light" to="/studio">
-          Become an expert <ArrowUpRight size={20} />
-        </Link>
-      </section>
-    </>
-  );
-}
-function ExpertCard({ expert: e, index }: { expert: any; index: number }) {
-  const lowest = Math.min(...e.services.map((s: any) => s.pricePaise));
-  return (
-    <div className="col">
-      <article className="card h-100 shadow-sm">
-        <div className="card-header bg-primary-subtle d-flex flex-wrap align-items-center gap-2 p-3">
-          <span className="d-none" />
-          <div className="avatar bg-white text-primary border rounded-circle d-flex align-items-center justify-content-center fw-semibold">
-            {e.name
-              .split(' ')
-              .map((x: string) => x[0])
-              .slice(0, 2)
-              .join('')}
-          </div>
-          <span className="badge text-bg-success d-inline-flex align-items-center gap-1">
-            <ShieldCheck size={13} /> Verified
-          </span>
-          <span className="display-4 text-primary opacity-25 ms-auto">
-            {['✳', '↗', '◈', '✦'][index % 4]}
-          </span>
-        </div>
-        <div className="card-body">
-          <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <h3>
-              <Link to={`/experts/${e.slug}`}>{e.name}</Link>
-            </h3>
-            {e.reviewCount > 0 ? (
-              <span className="d-inline-flex align-items-center gap-1 small text-warning-emphasis">
-                <Star size={13} />
-                {e.rating.toFixed(1)} <small>({e.reviewCount})</small>
-              </span>
-            ) : (
-              <span className="badge text-bg-secondary">New expert</span>
-            )}
-          </div>
-          <p className="text-body-secondary my-3">{e.headline}</p>
-          <div className="d-flex flex-wrap align-items-center gap-3 small text-body-secondary">
-            <span>
-              <MapPin size={13} />
-              {e.city ?? 'Online'}
-            </span>
-            <span>{e.experienceYears ?? 0}+ years experience</span>
-          </div>
-          <div className="d-flex flex-wrap gap-2 small my-3">
-            {e.languages?.slice(0, 2).map((l: string) => (
-              <span key={l}>{l}</span>
-            ))}
-            <span>
-              {e.services.some((s: any) => s.mode === 'online') ? 'Online sessions' : 'In person'}
-            </span>
-          </div>
-          <div className="border-top pt-3 d-flex justify-content-between align-items-center gap-2">
-            <div>
-              <small>Sessions from</small>
-              <strong>{formatMoney(lowest)}</strong>
-            </div>
-            <Link
-              to={`/experts/${e.slug}`}
-              className="btn btn-outline-primary btn-sm"
-              aria-label={`View ${e.name}`}
-            >
-              <ArrowUpRight size={20} />
-            </Link>
-          </div>
-        </div>
-      </article>
-    </div>
   );
 }
 

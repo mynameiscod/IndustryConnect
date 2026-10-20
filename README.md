@@ -1,4 +1,4 @@
-# Expert Market — independent marketplace MVP
+# IndustryConnect — independent marketplace MVP
 
 An independent hybrid expert marketplace, developed with Codex for a **conditional controlled beta on 1 November 2026**. Working name only; final brand/domain remain undecided. **Live transactions are disabled and source-locked.** This is a substantial first implementation, not a production-certified launch.
 
@@ -41,6 +41,8 @@ Node 24 and npm workspaces. MongoDB 7+ replica set required. Unit/integration te
 Without email/provider credentials, real email verification, SMS, Google and payments intentionally report unavailable. Seed accounts permit local UI development without pretending that integrations have passed. Never use demo accounts in staging/production.
 
 ## Validation
+
+To preview the redesigned homepage without MongoDB or provider credentials, run `npm run preview:homepage`, then open `.runtime/industryconnect-homepage-preview.html` in a browser. This self-contained design preview uses clearly labeled fictional profiles and supports search, filters, navigation and FAQs. Authentication, profiles and booking flows require the full application above. See [homepage design notes](docs/HOMEPAGE_DESIGN.md).
 
 ```bash
 npm run typecheck
