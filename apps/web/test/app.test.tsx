@@ -39,6 +39,52 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('customer UI', () => {
+  it('shows stored verified stories without inventing customer identities', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path.startsWith('/api/experts?'))
+        return {
+          ok: true,
+          json: async () => ({ items: [{ ...expert, reviewCount: 1, rating: 5 }], total: 1 }),
+        } as Response;
+      if (path === '/api/experts/demo-expert')
+        return {
+          ok: true,
+          json: async () => ({
+            name: expert.name,
+            reviews: [
+              { _id: 'r1', rating: 5, text: 'Practical feedback from my completed session.' },
+            ],
+          }),
+        } as Response;
+      return fallback(url, init);
+    });
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/Practical feedback from my completed session/)).toBeTruthy();
+    expect(screen.getByText('Verified customer')).toBeTruthy();
+    expect(screen.queryByText('Karthik N.')).toBeNull();
+  });
+  it('takes the footer email to sign-in without claiming a newsletter subscription', async () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Demo Expert');
+    fireEvent.change(screen.getByLabelText('Your email address'), {
+      target: { value: 'local@example.invalid' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    expect((screen.getByLabelText('Email address') as HTMLInputElement).value).toBe(
+      'local@example.invalid',
+    );
+  });
   it('opens mobile navigation and closes it after following a link', async () => {
     render(
       <MemoryRouter>
@@ -108,7 +154,10 @@ describe('customer UI', () => {
         <App />
       </MemoryRouter>,
     );
-    expect(await screen.findByRole('alert')).toBeTruthy();
+    const alerts = await screen.findAllByRole('alert');
+    expect(alerts.length).toBeGreaterThan(0);
+    for (const alert of alerts)
+      expect(alert.textContent).toContain('Marketplace is temporarily unavailable');
     expect(screen.queryByText('Demo Expert')).toBeNull();
   });
 });

@@ -7,14 +7,30 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowDown,
+  Link,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
+import {
+  Laptop,
+  BriefcaseBusiness,
+  ChartNoAxesColumnIncreasing,
+  Palette,
+  GraduationCap,
+  WalletCards,
+  UsersRound,
+  Shield,
+  MessageSquareQuote,
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
   Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -23,7 +39,6 @@ import {
   MapPin,
   Search,
   ShieldCheck,
-  Sparkles,
   Star,
   Video,
   X,
@@ -155,6 +170,7 @@ function Protected({ children, admin = false }: { children: ReactNode; admin?: b
   return children;
 }
 export function App() {
+  const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true);
@@ -172,24 +188,20 @@ export function App() {
   }, []);
   return (
     <Auth.Provider value={{ user, loading, refresh }}>
-      <div className="d-flex flex-column min-vh-100 bg-body-tertiary">
+      <div className="d-flex flex-column min-vh-100 bg-white industry-app">
         <a
           className="visually-hidden-focusable position-absolute top-0 start-0 btn btn-primary m-2 z-3"
           href="#main"
         >
           Skip to content
         </a>
-        <div className="bg-primary-subtle text-primary-emphasis text-center small py-2 px-3">
-          <span className="d-none" /> BUILDING BETTER CONNECTIONS{' '}
-          <span className="ms-2">Private beta · November 2026</span>
-        </div>
-        <header className="navbar navbar-expand-lg bg-white border-bottom px-3 px-lg-5 py-3 gap-3">
+        <header className="navbar navbar-expand-lg bg-white border-bottom px-3 px-lg-5 py-3 gap-3 industry-navbar">
           <Link to="/" className="navbar-brand d-inline-flex align-items-center fw-bold m-0">
-            <span className="d-inline-flex align-items-center justify-content-center bg-primary text-white rounded p-2 me-2">
+            <span className="industry-mark d-inline-flex align-items-center justify-content-center me-2">
               <Compass size={24} />
             </span>
-            expert<span className="fw-normal">market</span>
-            <span className="text-primary">.</span>
+            industryconnect
+            <span>.</span>
           </Link>
           <button
             className="navbar-toggler ms-auto"
@@ -210,12 +222,19 @@ export function App() {
               className="navbar-nav flex-column flex-lg-row flex-wrap gap-2 align-items-lg-center py-2 py-lg-0"
               aria-label="Main navigation"
             >
-              <NavLink className="nav-link" to="/">
-                Explore experts
+              <NavLink className="nav-link" to="/" aria-label="Explore experts">
+                Find Experts
               </NavLink>
-              <NavLink className="nav-link" to="/studio">
-                Become an expert <ArrowUpRight size={14} />
-              </NavLink>
+              <a className="nav-link" href="/#categories">
+                Categories
+              </a>
+              <a className="nav-link" href="/#how-it-works">
+                How it works
+              </a>
+              <a className="nav-link" href="/#expert-community">
+                For Businesses
+              </a>
+
               {user && (
                 <NavLink className="nav-link" to="/dashboard">
                   My bookings
@@ -228,6 +247,9 @@ export function App() {
               )}
             </nav>
             <div className="d-flex align-items-center gap-3 ms-lg-auto">
+              <Link className="btn btn-outline-secondary btn-sm" to="/studio">
+                Become an Expert
+              </Link>
               {user ? (
                 <>
                   <span className="small text-body-secondary">Hi, {user.name.split(' ')[0]}</span>
@@ -243,7 +265,7 @@ export function App() {
                 </>
               ) : (
                 <Link className="btn btn-primary btn-sm" to="/auth">
-                  Sign in <ArrowRight size={15} />
+                  Sign In
                 </Link>
               )}
             </div>
@@ -289,13 +311,72 @@ export function App() {
             />
           </Routes>
         </main>
-        <footer className="container d-flex flex-wrap align-items-center gap-3 border-top py-4 mt-5 small">
-          <Link className="navbar-brand d-inline-flex align-items-center fw-bold m-0" to="/">
-            expertmarket.
-          </Link>
-          <p>A little perspective. A meaningful next step.</p>
-          <Link to="/guidelines">Beta booking guidelines</Link>
-          <span>Independent marketplace · Controlled beta</span>
+        <footer className="industry-footer mt-0">
+          <div className="container py-4">
+            <div className="row g-4">
+              <div className="col-md-4">
+                <Link className="footer-brand" to="/">
+                  <Compass size={20} /> industryconnect.
+                </Link>
+                <p>
+                  Connecting learners and industry experts for
+                  <br />
+                  better decisions and brighter futures.
+                </p>
+                <span className="small">Independent marketplace ? Invitation-only beta</span>
+              </div>
+              <div className="col-6 col-md-2">
+                <h2>Explore</h2>
+                <a href="/#experts">Find Experts</a>
+                <a href="/#categories">Categories</a>
+                <a href="/#how-it-works">How it works</a>
+                <Link to="/studio">For Professionals</Link>
+              </div>
+              <div className="col-6 col-md-2">
+                <h2>Support</h2>
+                <Link to="/guidelines">Booking Guidelines</Link>
+                <Link to="/guidelines">Cancellations & Refunds</Link>
+                <Link to="/dashboard">My Bookings</Link>
+                <Link to="/auth">Account Help</Link>
+              </div>
+              <div className="col-md-4">
+                <h2>Your next step</h2>
+                <p>Sign in to find your next conversation.</p>
+                <form
+                  className="footer-email d-flex"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const email = new FormData(e.currentTarget).get('email');
+                    navigate('/auth?email=' + encodeURIComponent(String(email)));
+                  }}
+                >
+                  <label className="visually-hidden" htmlFor="footer-email">
+                    Your email address
+                  </label>
+                  <input
+                    id="footer-email"
+                    name="email"
+                    type="email"
+                    className="form-control form-control-sm"
+                    placeholder="Enter your email"
+                    required
+                  />
+                  <button
+                    className="btn btn-light btn-sm"
+                    type="submit"
+                    aria-label="Continue with email"
+                  >
+                    <ArrowRight size={16} />
+                  </button>
+                </form>
+                <small>Continue to sign in. No mailing list subscription.</small>
+              </div>
+            </div>
+            <div className="footer-bottom d-flex flex-wrap justify-content-between gap-2 mt-4 pt-3">
+              <span>? 2026 IndustryConnect. All rights reserved.</span>
+              <span>Private beta ? Live transactions disabled</span>
+            </div>
+          </div>
         </footer>
       </div>
     </Auth.Provider>
@@ -325,174 +406,324 @@ function Explore() {
     set(value);
     setPage(1);
   }
+  function showExperts() {
+    document.getElementById('experts')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }
+  const categoryLooks = [
+    { Icon: Laptop, tone: 'blue', description: 'Software, data & emerging technology' },
+    { Icon: BriefcaseBusiness, tone: 'peach', description: 'Jobs, interviews & your next chapter' },
+    {
+      Icon: ChartNoAxesColumnIncreasing,
+      tone: 'green',
+      description: 'Strategy, growth & building a business',
+    },
+    { Icon: Palette, tone: 'pink', description: 'Creative thinking, portfolios & design' },
+    { Icon: GraduationCap, tone: 'purple', description: 'Skills, learning & a clearer path' },
+    { Icon: WalletCards, tone: 'yellow', description: 'Explore professional expertise' },
+  ];
   return (
-    <>
-      <section className="container py-5">
-        <div className="row g-4 align-items-center">
+    <div className="market-home">
+      <section className="container market-hero">
+        <div className="row align-items-center g-5">
           <div className="col-lg-7">
-            <div>
-              <div className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-                <span /> GOOD PEOPLE. REAL PERSPECTIVE.
-              </div>
-              <h1>
-                Your next chapter.
-                <br />
-                <em>The right expert.</em>
-              </h1>
-              <p>
-                Big questions are easier with the right person.
-                <br className="d-none d-md-block" /> Find thoughtful guidance for your career,
-                business, and beyond.
-              </p>
-              <form
-                className="d-flex flex-wrap align-items-center gap-2 bg-white border rounded p-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setQuery(search);
-                  setPage(1);
-                }}
+            <p className="section-kicker">Learn. Discuss. Get expert advice.</p>
+            <h1>
+              Real Conversations
+              <br />
+              with Real Experts.
+            </h1>
+            <p className="hero-description">
+              Book 1:1 sessions with verified industry professionals for
+              <br className="d-none d-xl-block" /> career guidance, skills, business, and more.
+            </p>
+            <form
+              className="hero-search d-flex align-items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setQuery(search);
+                setPage(1);
+                showExperts();
+              }}
+            >
+              <Search size={19} className="text-body-secondary flex-shrink-0" aria-hidden="true" />
+              <input
+                className="form-control border-0 shadow-none"
+                aria-label="Search experts"
+                placeholder="What do you want help with?"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <button
+                className="btn btn-primary flex-shrink-0"
+                aria-label="Find an expert"
+                type="submit"
               >
-                <Search size={22} />
-                <input
-                  className="form-control"
-                  aria-label="Search experts"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="What would you like help with?"
-                />
-                <button className="btn btn-primary" type="submit">
-                  Find an expert <ArrowRight size={18} />
+                Find Experts <ArrowRight size={15} />
+              </button>
+            </form>
+            <div className="d-flex flex-wrap gap-2 mt-3">
+              {categories.data?.items.slice(0, 5).map((c: any) => (
+                <button
+                  key={c._id}
+                  className={`btn topic-chip ${category === c._id ? 'active' : ''}`}
+                  aria-pressed={category === c._id}
+                  onClick={() => {
+                    filter(setCategory, c._id);
+                    showExperts();
+                  }}
+                >
+                  {c.name}
                 </button>
-              </form>
-              <div className="d-flex flex-wrap gap-3 small text-body-secondary mt-3">
-                <span>
-                  <ShieldCheck size={17} /> Verified professionals
-                </span>
-                <span>
-                  <CalendarDays size={17} /> Time that works for you
-                </span>
-                <span>
-                  <CheckCircle2 size={17} /> Transparent pricing
-                </span>
-              </div>
+              ))}
+            </div>
+            <div className="row g-3 hero-trust">
+              {[
+                [ShieldCheck, 'Verified Experts', 'Quality professionals only', 'green'],
+                [CalendarDays, 'Easy Scheduling', 'Book at your convenience', 'blue'],
+                [Shield, 'Private & Secure', 'Your privacy is our priority', 'pink'],
+              ].map(([Icon, title, body, tone]) => {
+                const TrustIcon = Icon as typeof ShieldCheck;
+                return (
+                  <div className="col-12 col-sm-4" key={String(title)}>
+                    <div className="d-flex gap-2 align-items-center">
+                      <span className={`trust-icon tone-${tone}`}>
+                        <TrustIcon size={21} />
+                      </span>
+                      <div>
+                        <strong>{String(title)}</strong>
+                        <small>{String(body)}</small>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="col-lg-5">
-            <div className="card bg-primary-subtle border-0 p-4 p-lg-5 gap-3" aria-hidden="true">
-              <div className="d-none" />
-              <div className="d-none" />
-              <div className="d-flex align-items-center gap-2 small">
-                <span className="text-primary">
-                  <Sparkles size={18} />
+            <div className="hero-photo-wrap">
+              <span className="hero-rays" aria-hidden="true">
+                ╲│╱
+              </span>
+              <img
+                className="hero-photo"
+                src="/images/mentoring-conversation.png"
+                alt="Two professionals sharing ideas over a laptop in a bright workspace"
+                width="1448"
+                height="1086"
+                fetchPriority="high"
+              />
+              <div className="growth-note">
+                <ArrowUpRight size={25} />
+                <span>
+                  Grow your
+                  <br />
+                  career, faster
                 </span>
-                A fresh perspective
               </div>
-              <div className="card border-0 bg-white p-4">
-                <div className="d-flex justify-content-between align-items-center">
-                  <span className="text-primary">
-                    <Compass size={68} strokeWidth={1} />
-                  </span>
-                  <span className="display-5 text-primary">✳</span>
-                </div>
-                <p>
+              <div className="conversation-note d-flex align-items-center gap-3">
+                <span className="trust-icon tone-peach">
+                  <UsersRound size={22} />
+                </span>
+                <strong>
                   One conversation.
-                  <br />A clearer direction.
-                </p>
-                <div className="border-top" />
-                <div className="d-flex justify-content-between align-items-center mt-3 small">
-                  <span>MAKE YOUR NEXT MOVE</span>
-                  <ArrowUpRight size={26} />
-                </div>
-              </div>
-              <div className="d-flex align-items-center gap-2 small">
-                <span className="text-primary">
-                  <Check size={18} />
-                </span>
-                Your next step starts here
+                  <br />A wider perspective.
+                </strong>
               </div>
             </div>
           </div>
         </div>
       </section>
-      <div className="container border-top d-flex justify-content-between align-items-center py-3 text-body-secondary small">
-        <span>EXPLORE POSSIBILITIES</span>
-        <ArrowDown size={17} />
-      </div>
-      <section className="container py-4">
-        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-4">
+      <section className="container home-section" id="categories">
+        <div className="section-heading d-flex flex-wrap justify-content-between align-items-end gap-3">
           <div>
-            <div className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-              PEOPLE WHO CAN HELP
-            </div>
-            <h2>
-              Find your kind of expert<span>.</span>
-            </h2>
+            <p className="section-kicker">Explore top categories</p>
+            <h2>What’s your next move?</h2>
+            <p>Find experts across different domains and get personalized guidance.</p>
           </div>
-          <p>Choose a conversation that moves you forward.</p>
-        </div>
-        <div className="d-flex flex-wrap gap-2 border-bottom pb-3">
           <button
-            className={`btn btn-outline-primary btn-sm ${!category ? 'active' : ''}`}
+            className="btn btn-link section-link"
+            onClick={() => {
+              filter(setCategory, '');
+              showExperts();
+            }}
+          >
+            View all experts <ArrowRight size={15} />
+          </button>
+        </div>
+        {categories.loading ? (
+          <Loader />
+        ) : categories.error ? (
+          <Alert>
+            {categories.error}{' '}
+            <button className="btn btn-link p-0" onClick={categories.reload}>
+              Try again
+            </button>
+          </Alert>
+        ) : categories.data?.items.length ? (
+          <>
+            <div
+              className={`row row-cols-1 row-cols-sm-2 row-cols-lg-4 ${categories.data.items.length > 4 ? 'row-cols-xl-6' : 'row-cols-xl-4'} g-3`}
+            >
+              {categories.data.items.map((c: any) => {
+                const name = c.name.toLowerCase();
+                const look = /tech|software/.test(name)
+                  ? 0
+                  : /career|leadership/.test(name)
+                    ? 1
+                    : /business|startup/.test(name)
+                      ? 2
+                      : /design|creativ/.test(name)
+                        ? 3
+                        : /educat|learn/.test(name)
+                          ? 4
+                          : 5;
+                const { Icon, tone, description } = categoryLooks[look];
+                return (
+                  <div className="col" key={c._id}>
+                    <button
+                      className={`category-tile tone-${tone} ${category === c._id ? 'selected' : ''}`}
+                      aria-pressed={category === c._id}
+                      onClick={() => {
+                        filter(setCategory, c._id);
+                        showExperts();
+                      }}
+                    >
+                      <Icon size={27} />
+                      <strong>{c.name}</strong>
+                      <small>{description}</small>
+                      <span className="tile-arrow">
+                        <ArrowRight size={14} />
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <Pager page={catPage} setPage={setCatPage} total={categories.data.total} limit={12} />
+          </>
+        ) : (
+          <p className="text-body-secondary small">
+            Categories will appear as experts join the beta.
+          </p>
+        )}
+      </section>
+      <section className="container home-section" id="how-it-works">
+        <div className="section-heading">
+          <p className="section-kicker">How it works</p>
+          <h2>Get expert advice in 3 simple steps</h2>
+        </div>
+        <div className="row g-4">
+          {[
+            [
+              Search,
+              '1. Find an Expert',
+              'Search by skill, category or goal to find the right expert.',
+              'blue',
+            ],
+            [
+              CalendarDays,
+              '2. Book a Session',
+              'Choose a time slot and complete payment when checkout is available.',
+              'peach',
+            ],
+            [
+              Video,
+              '3. Join & Get Advice',
+              'Join your confirmed session and make the most of expert advice.',
+              'green',
+            ],
+          ].map(([Icon, title, body, tone], i) => {
+            const StepIcon = Icon as typeof Search;
+            return (
+              <article className="col-md-4" key={String(title)}>
+                <div className="d-flex gap-3 align-items-start position-relative">
+                  <span className={`step-icon tone-${tone}`}>
+                    <StepIcon size={24} />
+                  </span>
+                  <div>
+                    <h3>{String(title)}</h3>
+                    <p className="step-copy">{String(body)}</p>
+                  </div>
+                  {i < 2 && (
+                    <ArrowRight
+                      className="step-arrow d-none d-xl-block"
+                      size={21}
+                      aria-hidden="true"
+                    />
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <section className="container home-section" id="experts">
+        <div className="section-heading d-flex flex-wrap justify-content-between align-items-end gap-3">
+          <div>
+            <p className="section-kicker">Featured experts</p>
+            <h2>Learn from industry professionals</h2>
+          </div>
+          <span className="small text-body-secondary">
+            {experts.data
+              ? `${experts.data.total} experts to explore`
+              : 'Find your next conversation'}
+          </span>
+        </div>
+        <div className="d-flex flex-wrap align-items-center gap-2 mb-3 discovery-filters">
+          <button
+            className={`btn topic-chip ${!category ? 'active' : ''}`}
             onClick={() => filter(setCategory, '')}
           >
             All expertise
           </button>
-          {categories.data?.items.map((cat: any) => (
+          <select
+            className="form-select form-select-sm w-auto"
+            aria-label="Session format"
+            value={mode}
+            onChange={(e) => filter(setMode, e.target.value)}
+          >
+            <option value="">Any format</option>
+            <option value="online">Online sessions</option>
+            <option value="in_person">In person</option>
+          </select>
+          <select
+            className="form-select form-select-sm w-auto"
+            aria-label="Language"
+            value={language}
+            onChange={(e) => filter(setLanguage, e.target.value)}
+          >
+            <option value="">Any language</option>
+            <option>English</option>
+            <option>Telugu</option>
+            <option>Hindi</option>
+          </select>
+          <select
+            className="form-select form-select-sm w-auto"
+            aria-label="Maximum price"
+            value={price}
+            onChange={(e) => filter(setPrice, e.target.value)}
+          >
+            <option value="">Any price</option>
+            <option value="1000">Under ₹1,000</option>
+            <option value="2500">Under ₹2,500</option>
+            <option value="5000">Under ₹5,000</option>
+          </select>
+          {(query || category || mode || language || price) && (
             <button
-              key={cat._id}
-              className={`btn btn-outline-primary btn-sm ${category === cat._id ? 'active' : ''}`}
-              onClick={() => filter(setCategory, cat._id)}
+              className="btn btn-link btn-sm"
+              onClick={() => {
+                setQuery('');
+                setSearch('');
+                setCategory('');
+                setMode('');
+                setLanguage('');
+                setPrice('');
+                setPage(1);
+              }}
             >
-              {cat.name}
-            </button>
-          ))}
-          {categories.data?.total > 12 && (
-            <button
-              className="btn btn-outline-primary btn-sm"
-              onClick={() => setCatPage((p) => (p * 12 >= categories.data.total ? 1 : p + 1))}
-            >
-              More categories <ChevronRight size={14} />
+              Clear filters
             </button>
           )}
-        </div>
-        <div className="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3 my-4">
-          <div className="d-flex flex-wrap gap-2">
-            <select
-              className="form-select w-auto flex-grow-1"
-              aria-label="Session format"
-              value={mode}
-              onChange={(e) => filter(setMode, e.target.value)}
-            >
-              <option value="">Any format</option>
-              <option value="online">Online sessions</option>
-              <option value="in_person">In person</option>
-            </select>
-            <select
-              className="form-select w-auto flex-grow-1"
-              aria-label="Language"
-              value={language}
-              onChange={(e) => filter(setLanguage, e.target.value)}
-            >
-              <option value="">Any language</option>
-              <option>English</option>
-              <option>Telugu</option>
-              <option>Hindi</option>
-            </select>
-            <select
-              className="form-select w-auto flex-grow-1"
-              aria-label="Maximum price"
-              value={price}
-              onChange={(e) => filter(setPrice, e.target.value)}
-            >
-              <option value="">Any price</option>
-              <option value="1000">Under ₹1,000</option>
-              <option value="2500">Under ₹2,500</option>
-              <option value="5000">Under ₹5,000</option>
-            </select>
-          </div>
-          <span>
-            {experts.data ? `${experts.data.total} experts to explore` : 'Find a good fit'}
-          </span>
         </div>
         {experts.loading ? (
           <Loader />
@@ -504,129 +735,216 @@ function Explore() {
             </button>
           </Alert>
         ) : experts.data?.items.length ? (
-          <div className="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4">
-            {experts.data.items.map((expert: any, i: number) => (
-              <ExpertCard key={expert.id} expert={expert} index={i} />
+          <div className="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3">
+            {experts.data.items.map((e: any, i: number) => (
+              <ExpertCard key={e.id} expert={e} index={i} />
             ))}
           </div>
         ) : (
           <Empty title="A good match is worth finding">
-            Try another category or clear your filters. New verified experts will appear here as the
+            Try another category or clear your filters. Verified experts will appear here as the
             beta opens.
           </Empty>
         )}
         <Pager page={page} setPage={setPage} total={experts.data?.total ?? 0} />
       </section>
-      <section className="container row row-cols-1 row-cols-md-2 row-cols-xl-4 g-4 mx-auto py-5">
-        <div>
-          <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-            LESS FRICTION. MORE CLARITY.
-          </span>
-          <h2>
-            From a question
-            <br />
-            to a conversation.
-          </h2>
-          <Link className="icon-link" to="/guidelines">
-            How booking works <ArrowUpRight size={18} />
+      <CustomerStories experts={experts.data?.items ?? []} />
+      <section className="container pb-2" id="expert-community">
+        <div className="expert-banner d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+          <div>
+            <p className="section-kicker">Are you an industry expert?</p>
+            <h2>Share your knowledge. Make an impact.</h2>
+            <p>Join our community of professionals, set your own schedule, and help people grow.</p>
+          </div>
+          <Link className="btn btn-primary flex-shrink-0" to="/studio">
+            Become an Expert <ArrowRight size={15} />
           </Link>
         </div>
-        {[
-          ['01', 'Find your person', 'Explore expertise, services and real customer reviews.'],
-          ['02', 'Make a little time', 'Choose a session and a time that fits your schedule.'],
-          ['03', 'Take your next step', 'Meet your expert and leave with a clearer direction.'],
-        ].map(([number, title, text]) => (
-          <article key={number}>
-            <div className="card card-body h-100 gap-2">
-              <span>{number}</span>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
-          </article>
-        ))}
       </section>
-      <section className="container bg-primary text-white rounded p-4 p-lg-5 my-5 d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-4">
-        <div>
-          <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-            YOUR EXPERIENCE HAS VALUE
-          </span>
-          <h2>Someone needs what you know.</h2>
-          <p>Share your expertise, on your terms.</p>
-        </div>
-        <Link className="btn btn-light" to="/studio">
-          Become an expert <ArrowUpRight size={20} />
-        </Link>
-      </section>
-    </>
+    </div>
   );
 }
 function ExpertCard({ expert: e, index }: { expert: any; index: number }) {
   const lowest = Math.min(...e.services.map((s: any) => s.pricePaise));
   return (
     <div className="col">
-      <article className="card h-100 shadow-sm">
-        <div className="card-header bg-primary-subtle d-flex flex-wrap align-items-center gap-2 p-3">
-          <span className="d-none" />
-          <div className="avatar bg-white text-primary border rounded-circle d-flex align-items-center justify-content-center fw-semibold">
-            {e.name
-              .split(' ')
-              .map((x: string) => x[0])
-              .slice(0, 2)
-              .join('')}
-          </div>
-          <span className="badge text-bg-success d-inline-flex align-items-center gap-1">
-            <ShieldCheck size={13} /> Verified
-          </span>
-          <span className="display-4 text-primary opacity-25 ms-auto">
-            {['✳', '↗', '◈', '✦'][index % 4]}
-          </span>
-        </div>
-        <div className="card-body">
-          <div className="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <h3>
-              <Link to={`/experts/${e.slug}`}>{e.name}</Link>
-            </h3>
+      <article className="card expert-listing h-100">
+        <div className="card-body d-flex flex-column">
+          <div className="d-flex justify-content-between align-items-start mb-2">
+            <div
+              className={`avatar expert-avatar tone-${['blue', 'peach', 'green', 'purple'][index % 4]}`}
+            >
+              {e.name
+                .split(' ')
+                .map((x: string) => x[0])
+                .slice(0, 2)
+                .join('')}
+            </div>
             {e.reviewCount > 0 ? (
-              <span className="d-inline-flex align-items-center gap-1 small text-warning-emphasis">
-                <Star size={13} />
-                {e.rating.toFixed(1)} <small>({e.reviewCount})</small>
+              <span className="expert-rating">
+                <Star size={13} fill="currentColor" />
+                {e.rating.toFixed(1)}
               </span>
             ) : (
-              <span className="badge text-bg-secondary">New expert</span>
+              <span className="new-expert-label">New expert</span>
             )}
           </div>
-          <p className="text-body-secondary my-3">{e.headline}</p>
-          <div className="d-flex flex-wrap align-items-center gap-3 small text-body-secondary">
-            <span>
-              <MapPin size={13} />
-              {e.city ?? 'Online'}
-            </span>
-            <span>{e.experienceYears ?? 0}+ years experience</span>
-          </div>
-          <div className="d-flex flex-wrap gap-2 small my-3">
+          <h3>
+            <Link to={`/experts/${e.slug}`}>{e.name}</Link>{' '}
+            <ShieldCheck size={14} className="verified-icon" aria-label="Verified expert" />
+          </h3>
+          <p className="expert-headline">{e.headline}</p>
+          <p className="expert-experience">
+            {e.experienceYears ?? 0}+ years experience · {e.city ?? 'Online'}
+          </p>
+          <div className="d-flex flex-wrap gap-1 mb-3">
             {e.languages?.slice(0, 2).map((l: string) => (
-              <span key={l}>{l}</span>
+              <span className="skill-tag" key={l}>
+                {l}
+              </span>
             ))}
-            <span>
+            <span className="skill-tag">
               {e.services.some((s: any) => s.mode === 'online') ? 'Online sessions' : 'In person'}
             </span>
           </div>
-          <div className="border-top pt-3 d-flex justify-content-between align-items-center gap-2">
-            <div>
-              <small>Sessions from</small>
+          <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-auto pt-3 border-top">
+            <div className="session-price">
               <strong>{formatMoney(lowest)}</strong>
+              <span> / session</span>
             </div>
             <Link
+              className="btn btn-primary btn-sm"
               to={`/experts/${e.slug}`}
-              className="btn btn-outline-primary btn-sm"
               aria-label={`View ${e.name}`}
             >
-              <ArrowUpRight size={20} />
+              View Profile <ArrowRight size={12} />
             </Link>
           </div>
         </div>
       </article>
     </div>
+  );
+}
+type PublicStory = { _id: string; rating: number; text: string; expertName: string };
+function CustomerStories({ experts }: { experts: any[] }) {
+  const [stories, setStories] = useState<PublicStory[]>([]),
+    [failed, setFailed] = useState(false),
+    [loading, setLoading] = useState(false),
+    [offset, setOffset] = useState(0);
+  const slugs = experts
+    .filter((e) => e.reviewCount > 0)
+    .slice(0, 4)
+    .map((e) => e.slug)
+    .join(',');
+  useEffect(() => {
+    let active = true;
+    setStories([]);
+    setFailed(false);
+    setOffset(0);
+    if (!slugs) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    Promise.all(slugs.split(',').map((slug) => api<any>(`/experts/${encodeURIComponent(slug)}`)))
+      .then((profiles) => {
+        if (active)
+          setStories(
+            profiles.flatMap((e) =>
+              (e.reviews ?? []).map((r: any) => ({ ...r, expertName: e.name })),
+            ),
+          );
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [slugs]);
+  return (
+    <section className="container home-section">
+      <div className="stories-panel">
+        <div className="section-heading d-flex justify-content-between align-items-end gap-3">
+          <div>
+            <p className="section-kicker">Stories that inspire</p>
+            <h2>What learners say</h2>
+            <p>Real experiences from people who found the right guidance.</p>
+          </div>
+          {stories.length > 3 && (
+            <div className="d-flex gap-2">
+              <button
+                className="btn story-arrow"
+                aria-label="Previous reviews"
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - 3))}
+              >
+                <ArrowRight size={15} className="rotate-arrow" />
+              </button>
+              <button
+                className="btn story-arrow"
+                aria-label="Next reviews"
+                disabled={offset + 3 >= stories.length}
+                onClick={() => setOffset(offset + 3)}
+              >
+                <ArrowRight size={15} />
+              </button>
+            </div>
+          )}
+        </div>
+        {loading ? (
+          <Loader />
+        ) : failed ? (
+          <p className="small text-body-secondary mb-0" role="status">
+            Reviews are unavailable right now. Visit an expert’s profile to try again.
+          </p>
+        ) : stories.length ? (
+          <div className="row g-3">
+            {stories.slice(offset, offset + 3).map((r) => (
+              <div className="col-md-4" key={r._id}>
+                <figure className="card border-0 h-100 p-3 mb-0">
+                  <blockquote className="story-quote">“{r.text}”</blockquote>
+                  <figcaption className="d-flex justify-content-between align-items-center gap-2 mt-auto">
+                    <div>
+                      <strong className="small">Verified customer</strong>
+                      <small className="d-block text-body-secondary">
+                        Session with {r.expertName}
+                      </small>
+                    </div>
+                    <span className="expert-rating">
+                      <Star size={13} fill="currentColor" />
+                      {r.rating}/5
+                    </span>
+                  </figcaption>
+                </figure>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="review-empty d-flex flex-column flex-md-row align-items-md-center gap-3">
+            <span className="trust-icon tone-blue">
+              <MessageSquareQuote size={25} />
+            </span>
+            <div>
+              <h3>Your next conversation could inspire someone.</h3>
+              <p>
+                Customer stories will appear after completed, paid sessions. Every published review
+                comes from a verified booking.
+              </p>
+            </div>
+            <Link
+              className="btn btn-outline-primary btn-sm ms-md-auto flex-shrink-0"
+              to="/guidelines"
+            >
+              How reviews work <ArrowRight size={14} />
+            </Link>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -815,10 +1133,11 @@ function ExpertDetail() {
 }
 
 function AuthPage() {
+  const [searchParams] = useSearchParams();
   const { user, refresh } = useContext(Auth);
   const config = useData('/config');
   const [mode, setMode] = useState('login'),
-    [email, setEmail] = useState(''),
+    [email, setEmail] = useState(searchParams.get('email') ?? ''),
     [password, setPassword] = useState(''),
     [name, setName] = useState(''),
     [code, setCode] = useState(''),

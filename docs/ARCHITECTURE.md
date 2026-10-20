@@ -61,3 +61,11 @@ Redis-backed limits/queues when scaling beyond one API instance; full-text index
 - Mongo transaction deployment requirements: https://www.mongodb.com/docs/v8.0/core/transactions-production-consideration/
 
 These documents inform adapter design. They do not establish account approval or end-to-end integration success.
+
+## Homepage visual asset (20 October 2026)
+
+`apps/web/public/images/mentoring-conversation.png` was generated using the built-in imagegen tool and copied into this repository. It is an illustrative marketing photo; the people pictured are not listed experts or customers. Expert cards use initials because the current public profile contract does not include portrait uploads. Homepage testimonials come only from the existing public verified-review API; no synthetic reviews or identities are seeded.
+
+Final generation prompt:
+
+> Generate a single photorealistic editorial website hero photograph, landscape 4:3. Two Indian young adult professionals having a friendly career mentoring conversation across a wooden table in a bright modern cafe office. Woman on left wearing a warm terracotta blouse, man on right wearing a dark navy shirt and glasses, laptop open on table, both relaxed and engaged, natural smiles and hand gestures. Waist-up medium shot, leafy plant in softly blurred warm cream background, soft daylight, candid high quality commercial lifestyle photography. Both faces visible and anatomically natural. Frame subjects centrally with some breathing room. No text, no logos, no UI, no graphic overlays, no watermarks. This is an illustrative marketing photo, not a portrait of a listed expert.
