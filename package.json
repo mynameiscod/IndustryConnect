@@ -1,0 +1,44 @@
+{
+  "name": "independent-expert-marketplace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev -w @market/api\" \"npm run dev -w @market/web\"",
+    "build": "npm run build -w @market/contracts && npm run build -w @market/api && npm run build -w @market/web",
+    "typecheck": "npm run build -w @market/contracts && tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "test": "npm run build -w @market/contracts && vitest run",
+    "test:unit": "npm run build -w @market/contracts && vitest run apps/api/test/domain.test.ts",
+    "start": "npm run start -w @market/api",
+    "worker": "npm run worker -w @market/api",
+    "db:indexes": "node --import tsx apps/api/src/cli.ts indexes",
+    "db:seed": "node --import tsx apps/api/src/cli.ts seed",
+    "admin:create": "node --import tsx apps/api/src/cli.ts admin",
+    "reconcile": "node --import tsx apps/api/src/cli.ts reconcile",
+    "release:check": "node --import tsx apps/api/src/cli.ts readiness",
+    "predev": "npm run build -w @market/contracts",
+    "api:contracts": "node --import tsx scripts/generate-openapi.ts",
+    "smoke:deployment": "node scripts/smoke-deployment.mjs",
+    "format": "prettier --write apps packages scripts docs *.json *.yaml .github"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^24.0.0",
+    "@types/supertest": "^6.0.3",
+    "concurrently": "^9.2.1",
+    "jsdom": "^27.0.0",
+    "mongodb-memory-server": "^10.2.3",
+    "prettier": "^3.6.2",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
