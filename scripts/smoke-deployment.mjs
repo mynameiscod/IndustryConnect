@@ -20,7 +20,7 @@ import {
 if (process.platform === 'linux') process.env.MONGOMS_DISTRO ??= 'ubuntu-22.04';
 const replica = await MongoMemoryReplSet.create({
   binary: { version: process.env.MONGOMS_VERSION ?? '7.0.24' },
-  replSet: { count: 1, args: ['--nounixsocket'] },
+  replSet: { count: 1, args: process.platform === 'win32' ? [] : ['--nounixsocket'] },
 });
 const children = [];
 let success = false;

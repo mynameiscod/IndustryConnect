@@ -39,6 +39,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('customer UI', () => {
+  it('opens mobile navigation and closes it after following a link', async () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Demo Expert');
+    const toggle = screen.getByRole('button', { name: 'Toggle navigation' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(screen.getByRole('link', { name: 'Explore experts' }));
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
   it('shows API-backed experts without fabricated ratings', async () => {
     render(
       <MemoryRouter>

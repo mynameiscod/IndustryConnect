@@ -7,6 +7,7 @@ import { createApp } from '../src/app.js';
 import { readConfig } from '../src/config.js';
 import { digest, hashPassword } from '../src/auth.js';
 import {
+  Audit,
   Booking,
   Category,
   Expert,
@@ -31,6 +32,7 @@ import {
   expireBookings,
   addReview,
   reconcileBooking,
+  recoverOrder,
   runPayout,
 } from '../src/marketplace.js';
 import type { Providers, ProviderPayment } from '../src/providers.js';
@@ -64,7 +66,7 @@ async function createBooking() {
 beforeAll(async () => {
   repl = await MongoMemoryReplSet.create({
     binary: { version: process.env.MONGOMS_VERSION ?? '7.0.24' },
-    replSet: { count: 1, args: ['--nounixsocket'] },
+    replSet: { count: 1, args: process.platform === 'win32' ? [] : ['--nounixsocket'] },
   });
   await connect(repl.getUri());
   for (const m of models) await m.createIndexes();
@@ -77,6 +79,7 @@ beforeEach(async () => {
   for (const m of models) await m.deleteMany({});
   await ensureSettings();
   p = {
+    fetchOrder: vi.fn(),
     createOrder: vi.fn(async (amount) => ({ id: 'order_test', amount, currency: 'INR' })),
     fetchPayment: vi.fn(),
     fetchOrderPayments: vi.fn(),
@@ -275,19 +278,69 @@ describe('database integrity and authorization', () => {
   });
   it('rejects uninvited registration without creating a user', async () => {
     const inviteApp = createApp({ ...c, BETA_ACCESS_MODE: 'invite' }, p);
-    const r = await request(inviteApp)
-      .post('/api/auth/register')
-      .set(headers)
-      .send({
-        name: 'New member',
-        email: 'unknown@example.invalid',
-        password: 'long-enough-password!',
-      });
+    const r = await request(inviteApp).post('/api/auth/register').set(headers).send({
+      name: 'New member',
+      email: 'unknown@example.invalid',
+      password: 'long-enough-password!',
+    });
     expect(r.status).toBe(403);
     expect(await User.exists({ email: 'unknown@example.invalid' })).toBeNull();
   });
 });
 describe('payment state and fulfillment', () => {
+  it('recovers one ambiguous order without reviving an expired hold or creating an order', async () => {
+    const b = await reserve(f.customer._id, String(f.slot._id), 'recover-order-key');
+    await Booking.updateOne(
+      { _id: b._id },
+      { $set: { orderState: 'unknown', holdUntil: new Date(0) } },
+    );
+    await expireBookings();
+    vi.mocked(p.fetchOrder).mockResolvedValue({
+      id: 'order_recovered',
+      receipt: String(b._id),
+      amount: b.grossPaise,
+      currency: 'INR',
+      partial_payment: false,
+    });
+    const results = await Promise.allSettled([
+      recoverOrder(p, String(b._id), 'order_recovered'),
+      recoverOrder(p, String(b._id), 'order_recovered'),
+    ]);
+    expect(results.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(await Audit.countDocuments({ action: 'payment.order-recovered' })).toBe(1);
+    expect(p.createOrder).not.toHaveBeenCalled();
+    const recovered = await Booking.findById(b._id);
+    expect(recovered?.orderId).toBe('order_recovered');
+    expect((await Slot.findById(b.slotId))?.status).toBe('open');
+    await applyCapture(paid(recovered), 'recovered-late-capture');
+    expect((await Booking.findById(b._id))?.paymentStatus).toBe('refund_required');
+  });
+  it('rejects mismatched recovery evidence and leaves the order ambiguous', async () => {
+    const b = await reserve(f.customer._id, String(f.slot._id), 'recover-mismatch-key');
+    await Booking.updateOne({ _id: b._id }, { $set: { orderState: 'unknown' } });
+    const order = {
+      id: 'order_recovered',
+      receipt: String(b._id),
+      amount: b.grossPaise,
+      currency: 'INR',
+      partial_payment: false,
+    };
+    for (const change of [
+      { receipt: String(f.other._id) },
+      { amount: b.grossPaise + 1 },
+      { currency: 'USD' },
+      { partial_payment: true },
+      { id: 'order_other' },
+    ]) {
+      vi.mocked(p.fetchOrder).mockResolvedValue({ ...order, ...change });
+      await expect(recoverOrder(p, String(b._id), order.id)).rejects.toMatchObject({
+        code: 'ORDER_MISMATCH',
+      });
+    }
+    expect((await Booking.findById(b._id))?.orderState).toBe('unknown');
+    expect((await Booking.findById(b._id))?.orderId).toBeUndefined();
+    expect(p.createOrder).not.toHaveBeenCalled();
+  });
   it('captures once across webhook IDs and callback, preserving balanced ledger', async () => {
     const b = await createBooking();
     await applyCapture(paid(b), 'event-one');

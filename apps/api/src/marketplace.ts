@@ -456,6 +456,53 @@ export async function addReview(
     )[0];
   });
 }
+export async function recoverOrder(p: Providers, bookingId: string, orderId: string) {
+  assert(
+    /^[a-f0-9]{24}$/i.test(bookingId) && /^order_[a-zA-Z0-9]+$/.test(orderId),
+    400,
+    'INVALID_REFERENCE',
+    'Valid booking and provider order IDs required',
+  );
+  const b = await Booking.findById(bookingId);
+  assert(b, 404, 'NOT_FOUND', 'Booking missing');
+  assert(
+    !b.orderId && ['creating', 'unknown'].includes(b.orderState),
+    409,
+    'ORDER_NOT_AMBIGUOUS',
+    'Only an unresolved ambiguous order can be recovered',
+  );
+  const order = await p.fetchOrder(orderId);
+  assert(
+    order.id === orderId &&
+      order.receipt === String(b._id) &&
+      Number.isSafeInteger(order.amount) &&
+      order.amount === b.grossPaise &&
+      order.currency === 'INR' &&
+      order.partial_payment === false,
+    409,
+    'ORDER_MISMATCH',
+    'Provider order does not match the booking',
+  );
+  await mongoose.connection.transaction(async (session) => {
+    const locked = await Booking.findOneAndUpdate(
+      { _id: b._id, orderId: { $exists: false }, orderState: { $in: ['creating', 'unknown'] } },
+      { $set: { orderId, orderState: 'ready' } },
+      { session, returnDocument: 'after' },
+    );
+    assert(locked, 409, 'ORDER_STATE_CHANGED', 'Order state changed; inspect before retrying');
+    await Audit.create(
+      [
+        {
+          action: 'payment.order-recovered',
+          resourceId: String(b._id),
+          details: { orderId, source: 'operator-cli' },
+        },
+      ],
+      { session },
+    );
+  });
+  return { bookingId, orderId, status: 'order_recovered' };
+}
 export async function reconcileBooking(p: Providers, bookingId: string) {
   let b = await Booking.findById(bookingId);
   assert(

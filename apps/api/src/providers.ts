@@ -12,6 +12,13 @@ export interface ProviderPayment {
   amount_refunded?: number;
 }
 export interface Providers {
+  fetchOrder(id: string): Promise<{
+    id: string;
+    receipt: string;
+    amount: number;
+    currency: string;
+    partial_payment: boolean;
+  }>;
   createOrder(
     amount: number,
     receipt: string,
@@ -121,6 +128,7 @@ export function createProviders(c: Config): Providers {
     });
   };
   return {
+    fetchOrder: (id) => razor(`orders/${encodeURIComponent(id)}`),
     createOrder: (amount, receipt) =>
       razor('orders', { amount, currency: 'INR', receipt, partial_payment: false }),
     fetchPayment: (paymentId) => razor(`payments/${encodeURIComponent(paymentId)}`),

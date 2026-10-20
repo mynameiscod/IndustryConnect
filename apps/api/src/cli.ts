@@ -12,7 +12,7 @@ import {
   models,
 } from './models.js';
 import { hashPassword } from './auth.js';
-import { addSlot, reconcileBooking } from './marketplace.js';
+import { addSlot, reconcileBooking, recoverOrder } from './marketplace.js';
 import { createProviders, assert } from './providers.js';
 const c = readConfig();
 const action = process.argv[2];
@@ -167,6 +167,12 @@ try {
       console.info(
         'Fictional development data created. All demo accounts use DEMO_PASSWORD. No provider calls were made.',
       );
+    } else if (action === 'recover-order') {
+      console.info(
+        JSON.stringify(
+          await recoverOrder(createProviders(c), process.argv[3] ?? '', process.argv[4] ?? ''),
+        ),
+      );
     } else if (action === 'reconcile') {
       const p = createProviders(c);
       const rows = await Booking.find({
@@ -189,7 +195,7 @@ try {
           process.exitCode = 1;
         }
       }
-    } else throw new Error('Use indexes, admin, seed, reconcile or readiness');
+    } else throw new Error('Use indexes, admin, seed, reconcile, recover-order or readiness');
   }
 } finally {
   await mongoose.disconnect();
