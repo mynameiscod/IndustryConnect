@@ -884,3 +884,98 @@ describe('expert earnings workspace', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 });
+
+describe('personal booking workspace', () => {
+  function mockDashboard(roles: string[], failBookings = false) {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path === '/api/me')
+        return {
+          ok: true,
+          json: async () => ({ id: 'customer1', name: 'Ananya Rao', emailVerified: true, roles }),
+        } as Response;
+      if (path.startsWith('/api/bookings?'))
+        return {
+          ok: !failBookings,
+          status: failBookings ? 503 : 200,
+          json: async () =>
+            failBookings
+              ? { error: { message: 'Bookings temporarily unavailable' } }
+              : { items: [], total: 0 },
+        } as Response;
+      return fallback(url, init);
+    });
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <App />
+      </MemoryRouter>,
+    );
+  }
+  it('personalizes the empty state and routes discovery to real experts', async () => {
+    mockDashboard(['customer']);
+    expect(await screen.findByRole('heading', { name: 'Good to see you, Ananya.' })).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: 'Your next conversation is waiting' }),
+    ).toBeTruthy();
+    expect(screen.getByText(/Payments are disabled in this build/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Expert appointments' })).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: 'Explore Experts' }));
+    expect(await screen.findByText('Demo Expert')).toBeTruthy();
+  });
+  it('switches expert scope and shows the appropriate empty state', async () => {
+    mockDashboard(['customer', 'expert']);
+    fireEvent.click(await screen.findByRole('button', { name: 'Expert appointments' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Your next appointment is on its way' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Expert appointments' }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('scope=expert&page=1')),
+    ).toBe(true);
+  });
+  it('shows booking failure instead of an empty-bookings claim', async () => {
+    mockDashboard(['customer'], true);
+    expect(await screen.findByText('Bookings temporarily unavailable')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Your next conversation is waiting' })).toBeNull();
+  });
+});
+
+describe('sign-in reference layout', () => {
+  it('toggles password visibility without losing the draft', async () => {
+    render(
+      <MemoryRouter initialEntries={['/auth']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    const password = screen.getByLabelText('Password') as HTMLInputElement;
+    fireEvent.change(password, { target: { value: 'a-private-draft' } });
+    expect(password.type).toBe('password');
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(password.type).toBe('text');
+    expect(password.value).toBe('a-private-draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(password.type).toBe('password');
+    expect(
+      (screen.getByRole('button', { name: 'Continue with Google' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+  it('keeps account creation, reset and phone forms reachable', async () => {
+    render(
+      <MemoryRouter initialEntries={['/auth']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
+    expect(screen.getByRole('button', { name: 'Send reset code' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    expect(screen.getByLabelText('Your name')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Phone OTP' }));
+    expect(screen.getByLabelText('Phone number with country code')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send OTP' })).toBeTruthy();
+  });
+});

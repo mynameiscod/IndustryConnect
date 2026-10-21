@@ -41,6 +41,12 @@ GitHub publication is complete at [mynameiscod/IndustryConnect](https://github.c
 
 ## External and implementation blockers
 
+### Isolated deployment — 21 October 2026
+
+Deployed an invite-only, payments-disabled staging installation at `https://iconnect.codebegun.com` on `187.126.127.154`. Source is commit `0e4907e4eec4a0a204bbc39559314a80e32625bc` plus the corrected smoke-title assertion and new `compose.production.yaml`; this is not an exact-commit release approval. A real Docker image was built on the dedicated server. Separate API/worker containers use an authenticated MongoDB 7 replica set with a database-scoped application user and no published Mongo port. Secrets were generated on the server under `/opt/industryconnect/secrets`; development fixtures and local credentials were not deployed. Nginx terminates a valid Let's Encrypt certificate with automatic renewal. Authoritative DNS points to the server; recursive resolvers may retain the previous address for its 14400-second TTL.
+
+Executed evidence: all 74 local tests, strict type check and production build passed; corrected compiled smoke passed against temporary Mongo. External HTTPS checks pinned to the intended IP passed for the homepage, readiness and dashboard deep link; unauthenticated access returned 401 and foreign-origin login returned 403. Checkout remains disabled and the live source lock is unchanged. This is deployment evidence only: real admin/invitations, provider credentials/delivery, browser/mobile/accessibility, backup restore, rollback, monitoring and live-transaction release approval remain outstanding. No production customer data, provider calls or money movement occurred.
+
 Local demo follow-up: a separate Docker MongoDB replica set on localhost port 27018 was initialized and fictional accounts seeded. API, Vite and worker processes were started locally with checkout disabled. HTTP health/readiness/discovery and customer/expert/admin login/dashboard API checks passed. Compiled deployment smoke passed, and npm audit reported zero vulnerabilities. The smoke fixture now also omits the Unix-only socket flag on Windows. These are local checks, not external provider, browser/accessibility, HTTPS staging or recovery certification; browser automation was unavailable in this session. Secrets and demo credentials are in ignored `.env` only.
 
 ### Current local follow-up (20 October 2026)
@@ -89,3 +95,7 @@ Implemented an operator-only `recover-order` CLI path for ambiguous provider ord
 4. Review exact release commit and remaining P0 acceptance cases on 31 October. Keep 1 November internal/test-only if any gate fails. Remove the source lock only in a reviewed, evidence-backed change.
 
 No future work or release is scheduled automatically by this repository.
+
+Booking dashboard reference follow-up (21 October 2026): implemented the supplied personal-space composition with responsive welcome/callout, booking navigation, CSS calendar illustrations, disabled-checkout notice, contextual empty states and benefits. Existing shared header/footer, booking actions and pagination are preserved. The notice requires an explicit API false value; config errors and booking errors remain visible. All 77 automated tests pass, including three dashboard cases; strict type check passes. This is local implementation evidence; visual browser/mobile QA and deployment of this UI change remain pending. Live source lock is unchanged.
+
+Authentication reference follow-up (21 October 2026): rebuilt sign-in as a responsive split story/form composition using the existing illustrative mentoring photo, benefit icons, orange active tabs, icon inputs, draft-preserving password visibility, reset/verification links and account creation. Existing provider/API flows remain connected; Google renders its real widget only when configured, otherwise a disabled action and availability message. All 79 tests pass, strict type check and production build pass. Browser/mobile visual QA, real provider certification and deployment of these UI changes remain pending; no API behavior or live source lock changed.

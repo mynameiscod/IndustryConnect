@@ -18,6 +18,9 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import {
+  Mail,
+  LockKeyhole,
+  EyeOff,
   FileText,
   Landmark,
   Trash2,
@@ -1186,7 +1189,8 @@ function AuthPage() {
     [sent, setSent] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [showPassword, setShowPassword] = useState(false);
   const googleRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   useEffect(() => {
@@ -1265,191 +1269,300 @@ function AuthPage() {
     }
   }
   return (
-    <div className="container py-4 py-lg-5">
-      <div className="row g-4 align-items-center">
-        <div className="col-lg-5 d-none d-lg-block">
-          <section className="bg-primary text-white rounded p-4 p-xl-5">
-            <Compass size={48} strokeWidth={1} />
-            <h1>
-              A good conversation
-              <br />
-              can change
-              <br />
-              <em>what comes next.</em>
-            </h1>
-            <p>
-              Find perspective. Share experience.
-              <br />
-              Make room for your next chapter.
-            </p>
-            <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-              WELCOME TO EXPERT MARKET
-            </span>
+    <div className="auth-page">
+      <div className="container auth-shell">
+        <div className="auth-layout">
+          <section className="auth-story" aria-label="Conversations that move you forward">
+            <div className="auth-story-copy">
+              <span className="auth-accent" />
+              <h1>
+                A good
+                <br />
+                conversation
+                <br />
+                can change
+                <br />
+                what comes next.
+              </h1>
+              <p className="auth-story-intro">
+                Connect with industry experts,
+                <br />
+                get personalized guidance and
+                <br />
+                make more for your next chapter.
+              </p>
+              <div className="auth-benefits">
+                <div>
+                  <span className="auth-feature green">
+                    <UsersRound size={25} />
+                  </span>
+                  <div>
+                    <h3>Learn from real experts</h3>
+                    <p>Get guidance from industry professionals with hands-on experience.</p>
+                  </div>
+                </div>
+                <div>
+                  <span className="auth-feature blue">
+                    <CalendarDays size={25} />
+                  </span>
+                  <div>
+                    <h3>Book at your convenience</h3>
+                    <p>Choose a time that works for you.</p>
+                  </div>
+                </div>
+                <div>
+                  <span className="auth-feature orange">
+                    <Star size={25} />
+                  </span>
+                  <div>
+                    <h3>Grow with confidence</h3>
+                    <p>Gain clarity, build skills and take the next step in your career.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="auth-story-photo">
+              <img
+                src="/images/mentoring-conversation.png"
+                alt="An illustrative conversation over a laptop"
+              />
+            </div>
+            <div className="auth-story-note">
+              <span>
+                <GraduationCap size={26} />
+              </span>
+              <p>
+                Better conversations
+                <br />
+                Brighter futures
+              </p>
+            </div>
           </section>
-        </div>
-        <div className="col-lg-7">
-          <section className="card p-3 p-lg-4 shadow-sm">
-            <div className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-              {user ? 'ACCOUNT CONNECTIONS' : 'YOUR NEXT STEP'}
-            </div>
-            <h2>
-              {mode === 'register'
-                ? 'Join the conversation'
-                : mode === 'verify'
-                  ? 'Verify your email'
-                  : mode === 'phone'
-                    ? 'Sign in with your phone'
-                    : mode === 'reset'
-                      ? 'Reset your password'
-                      : 'Welcome back'}
-            </h2>
-            <p className="text-body-secondary small">
-              {config.data?.betaAccess === 'invite'
-                ? 'Our controlled beta is invitation-only.'
-                : 'Sign in to manage your appointments.'}
-            </p>
-            <div className="nav nav-pills flex-wrap gap-2 mb-4">
-              {[
-                ['login', 'Email'],
-                ['register', 'Create account'],
-                ['phone', 'Phone OTP'],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  className={mode === value ? 'nav-link active' : 'nav-link'}
-                  onClick={() => {
-                    setMode(value);
-                    setSent(false);
-                    setError('');
-                    setNotice('');
-                  }}
-                >
-                  {label}
+          <div className="auth-form-column">
+            <section className="auth-form-panel">
+              <div className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
+                {user ? 'ACCOUNT CONNECTIONS' : 'YOUR NEXT STEP'}
+              </div>
+              <h2>
+                {mode === 'register'
+                  ? 'Join the conversation'
+                  : mode === 'verify'
+                    ? 'Verify your email'
+                    : mode === 'phone'
+                      ? 'Sign in with your phone'
+                      : mode === 'reset'
+                        ? 'Reset your password'
+                        : 'Welcome back'}
+              </h2>
+              <p className="auth-subtitle">
+                Sign in to your IndustryConnect account
+                <br />
+                to manage your bookings, appointments and more.
+              </p>
+              <p className="auth-beta-note">
+                {config.data?.betaAccess === 'invite'
+                  ? 'Our controlled beta is invitation-only.'
+                  : 'Find your next conversation.'}
+              </p>
+              <div className="auth-tabs" aria-label="Sign-in options">
+                {[
+                  ['login', 'Email'],
+                  ['phone', 'Phone OTP'],
+                  ['register', 'Create account'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={mode === value ? 'active' : ''}
+                    aria-pressed={mode === value}
+                    disabled={busy}
+                    onClick={() => {
+                      setMode(value);
+                      setSent(false);
+                      setError('');
+                      setNotice('');
+                      setCode('');
+                      setShowPassword(false);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {error && <Alert>{error}</Alert>}
+              {notice && <Alert kind="success">{notice}</Alert>}
+              <form onSubmit={submit}>
+                {mode === 'register' && (
+                  <Field label="Your name">
+                    <input
+                      className="form-control"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required
+                      minLength={2}
+                    />
+                  </Field>
+                )}
+                {mode === 'phone' ? (
+                  <Field label="Phone number with country code">
+                    <input
+                      className="form-control"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91…"
+                      required
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Email address">
+                    <span className="auth-input-wrap">
+                      <Mail size={17} aria-hidden="true" />
+                      <input
+                        className="form-control"
+                        placeholder="you@example.com"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                      />
+                    </span>
+                  </Field>
+                )}
+                {(mode === 'verify' || sent) && (
+                  <Field label="Verification code">
+                    <input
+                      className="form-control"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      required
+                    />
+                  </Field>
+                )}
+                {(['login', 'register'].includes(mode) || (mode === 'reset' && sent)) && (
+                  <Field
+                    label={mode === 'login' ? 'Password' : 'Password · at least 12 characters'}
+                  >
+                    <span className="auth-input-wrap">
+                      <LockKeyhole size={17} aria-hidden="true" />
+                      <input
+                        className="form-control"
+                        placeholder={
+                          mode === 'login' ? 'Enter your password' : 'Create a strong password'
+                        }
+                        type={showPassword ? 'text' : 'password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        minLength={mode === 'login' ? 1 : 12}
+                        autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="auth-password-toggle"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        aria-pressed={showPassword}
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </span>
+                  </Field>
+                )}
+                {mode === 'login' && (
+                  <div className="auth-forgot">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('reset');
+                        setSent(false);
+                        setError('');
+                        setNotice('');
+                      }}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+                <button className="btn btn-primary w-100 auth-continue" disabled={busy}>
+                  {busy
+                    ? 'Please wait…'
+                    : mode === 'register'
+                      ? 'Create account'
+                      : mode === 'verify'
+                        ? 'Verify email'
+                        : mode === 'phone' && !sent
+                          ? 'Send OTP'
+                          : mode === 'reset'
+                            ? sent
+                              ? 'Update password'
+                              : 'Send reset code'
+                            : 'Continue'}
+                  <ArrowRight size={16} />
                 </button>
-              ))}
-            </div>
-            {error && <Alert>{error}</Alert>}
-            {notice && <Alert kind="success">{notice}</Alert>}
-            <form onSubmit={submit}>
-              {mode === 'register' && (
-                <Field label="Your name">
-                  <input
-                    className="form-control"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    minLength={2}
-                  />
-                </Field>
-              )}
-              {mode === 'phone' ? (
-                <Field label="Phone number with country code">
-                  <input
-                    className="form-control"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+91…"
-                    required
-                  />
-                </Field>
-              ) : (
-                <Field label="Email address">
-                  <input
-                    className="form-control"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                  />
-                </Field>
-              )}
-              {(mode === 'verify' || sent) && (
-                <Field label="Verification code">
-                  <input
-                    className="form-control"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    required
-                  />
-                </Field>
-              )}
-              {(['login', 'register'].includes(mode) || (mode === 'reset' && sent)) && (
-                <Field label={mode === 'login' ? 'Password' : 'Password · at least 12 characters'}>
-                  <input
-                    className="form-control"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    minLength={mode === 'login' ? 1 : 12}
-                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    required
-                  />
-                </Field>
-              )}
-              <button className="btn btn-primary w-100" disabled={busy}>
-                {busy
-                  ? 'Please wait…'
-                  : mode === 'register'
-                    ? 'Create account'
-                    : mode === 'verify'
-                      ? 'Verify email'
-                      : mode === 'phone' && !sent
-                        ? 'Send OTP'
-                        : mode === 'reset'
-                          ? sent
-                            ? 'Update password'
-                            : 'Send reset code'
-                          : 'Continue'}
-                <ArrowRight size={16} />
-              </button>
-            </form>
-            {mode === 'login' && (
-              <div className="d-flex flex-wrap justify-content-between gap-3 mt-3">
+              </form>
+              {mode === 'verify' && (
                 <button
                   className="btn btn-link p-0"
-                  onClick={() => {
-                    setMode('reset');
-                    setSent(false);
+                  onClick={async () => {
+                    try {
+                      await post('/auth/email/request', { email });
+                      setNotice('If eligible, a new code has been sent.');
+                    } catch (e) {
+                      setError(msg(e));
+                    }
                   }}
                 >
-                  Forgot password?
+                  Resend code
                 </button>
-                <button className="btn btn-link p-0" onClick={() => setMode('verify')}>
-                  Verify email
-                </button>
+              )}
+              <div className="auth-divider">
+                <span>or</span>
               </div>
-            )}
-            {mode === 'verify' && (
-              <button
-                className="btn btn-link p-0"
-                onClick={async () => {
-                  try {
-                    await post('/auth/email/request', { email });
-                    setNotice('If eligible, a new code has been sent.');
-                  } catch (e) {
-                    setError(msg(e));
-                  }
-                }}
-              >
-                Resend code
-              </button>
-            )}
-            <div className="mt-4" ref={googleRef} />
-            {!config.data?.googleClientId && (
-              <p className="small text-body-secondary mt-3">
-                Google sign-in will be available when the beta integration is connected.
-              </p>
-            )}
-            {mode === 'phone' && (
-              <p className="small text-body-secondary mt-3">
-                Invited beta members: sign in by email first, then use this page to link your phone.
-              </p>
-            )}
-          </section>
+              <div className="auth-google" ref={googleRef} />
+              {!config.data?.googleClientId && (
+                <div className="auth-google-unavailable">
+                  <button className="btn btn-outline-secondary w-100" disabled>
+                    <Globe size={18} /> Continue with Google
+                  </button>
+                  <p>Google sign-in is not connected yet.</p>
+                </div>
+              )}
+              {mode === 'login' && (
+                <div className="auth-create">
+                  Need an account?{' '}
+                  <button
+                    onClick={() => {
+                      setMode('register');
+                      setSent(false);
+                      setError('');
+                      setNotice('');
+                    }}
+                  >
+                    Create an account <ArrowRight size={14} />
+                  </button>
+                  <button
+                    className="auth-verify-link"
+                    onClick={() => {
+                      setMode('verify');
+                      setError('');
+                      setNotice('');
+                    }}
+                  >
+                    Verify email
+                  </button>
+                </div>
+              )}
+              {mode === 'phone' && (
+                <p className="small text-body-secondary mt-3">
+                  Invited beta members: sign in by email first, then use this page to link your
+                  phone.
+                </p>
+              )}
+            </section>
+          </div>
         </div>
       </div>
     </div>
@@ -1473,79 +1586,172 @@ function Dashboard() {
     }
   }
   return (
-    <div className="container py-4 py-lg-5">
-      <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
-        <div>
-          <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-            YOUR PERSONAL SPACE
-          </span>
-          <h1>Good to see you, {user?.name.split(' ')[0]}.</h1>
-          <p>Keep your conversations and next steps in one place.</p>
+    <div className="booking-dashboard">
+      <section className="booking-welcome">
+        <div className="container d-flex align-items-center gap-4 flex-wrap flex-lg-nowrap">
+          <div className="booking-greeting flex-grow-1">
+            <span className="booking-kicker">YOUR PERSONAL SPACE</span>
+            <h1>Good to see you, {user?.name.split(' ')[0]}.</h1>
+            <p>Keep track of your bookings, appointments and next steps in one place.</p>
+          </div>
+          <CalendarIllustration />
+          <aside className="booking-discover d-flex align-items-start gap-3">
+            <span className="booking-discover-icon">
+              <CalendarDays size={30} />
+            </span>
+            <div>
+              <h2>Find an expert</h2>
+              <p>Explore our experts and book your next session.</p>
+              <Link className="btn btn-primary btn-sm" to="/#experts">
+                Find an expert <ArrowRight size={15} />
+              </Link>
+            </div>
+          </aside>
         </div>
-        <Link className="btn btn-primary" to="/">
-          Find an expert <ArrowUpRight size={16} />
-        </Link>
-      </div>
-      <div className="nav nav-pills flex-wrap gap-2 mb-4">
-        <button
-          className={scope === 'customer' ? 'nav-link active' : 'nav-link'}
-          onClick={() => {
-            setScope('customer');
-            setPage(1);
-          }}
-        >
-          My bookings
-        </button>
-        {user?.roles.includes('expert') && (
+      </section>
+      <div className="booking-tabs-wrap">
+        <nav className="container booking-tabs" aria-label="Booking views">
           <button
-            className={scope === 'expert' ? 'nav-link active' : 'nav-link'}
+            className={scope === 'customer' ? 'active' : ''}
+            aria-pressed={scope === 'customer'}
             onClick={() => {
-              setScope('expert');
+              setScope('customer');
               setPage(1);
             }}
           >
-            Expert appointments
+            <CalendarDays size={21} /> My bookings
           </button>
-        )}
-        <Link to="/studio">
-          Expert studio <ArrowUpRight size={14} />
-        </Link>
-        <Link to="/auth">Link Google / phone</Link>
+          {user?.roles.includes('expert') && (
+            <button
+              className={scope === 'expert' ? 'active' : ''}
+              aria-pressed={scope === 'expert'}
+              onClick={() => {
+                setScope('expert');
+                setPage(1);
+              }}
+            >
+              <CalendarDays size={21} /> Expert appointments
+            </button>
+          )}
+          <Link to="/studio">
+            <UserRound size={21} /> Expert studio <ArrowUpRight size={13} />
+          </Link>
+          <Link to="/auth">
+            <Link2 size={21} /> Link Google / phone
+          </Link>
+        </nav>
       </div>
-      {!config.data?.checkoutEnabled && (
-        <Alert kind="info">
-          Payments are disabled in this build. Reserved slots expire automatically after 10 minutes.
-          No money will be collected.
-        </Alert>
-      )}
-      {error && <Alert>{error}</Alert>}
-      {bookings.loading ? (
-        <Loader />
-      ) : bookings.error ? (
-        <Alert>{bookings.error}</Alert>
-      ) : !bookings.data?.items.length ? (
-        <Empty title="Your next conversation is waiting">
-          <Link to="/">Explore experts and find your first session.</Link>
-        </Empty>
-      ) : (
-        <div className="vstack gap-3">
-          {bookings.data.items.map((b: any) => (
-            <BookingCard
-              key={b._id}
-              b={b}
-              scope={scope}
-              action={action}
-              reload={bookings.reload}
-              checkoutEnabled={!!config.data?.checkoutEnabled}
-              onError={setError}
-            />
-          ))}
-        </div>
-      )}
-      <Pager page={page} setPage={setPage} total={bookings.data?.total ?? 0} />
+      <div className="container booking-content">
+        {config.data?.checkoutEnabled === false && (
+          <div className="booking-payment-notice" role="status">
+            <CircleHelp size={22} />
+            <span>
+              Payments are disabled in this build. Reserved slots expire automatically after 10
+              minutes. No money will be collected.
+            </span>
+          </div>
+        )}
+        {config.error && <Alert>{config.error}</Alert>}
+        {error && <Alert>{error}</Alert>}
+        {bookings.loading ? (
+          <Loader />
+        ) : bookings.error ? (
+          <Alert>{bookings.error}</Alert>
+        ) : !bookings.data?.items.length ? (
+          <section className="booking-empty">
+            <div className="booking-empty-main">
+              <CalendarIllustration search />
+              <h2>
+                {scope === 'expert'
+                  ? 'Your next appointment is on its way'
+                  : 'Your next conversation is waiting'}
+              </h2>
+              <p>
+                {scope === 'expert'
+                  ? 'Your expert appointments will appear here when customers book a session.'
+                  : 'You do not have any bookings yet. Explore our experts and schedule your first session to get personalized guidance.'}
+              </p>
+              <div className="d-flex flex-wrap justify-content-center gap-2">
+                <Link className="btn btn-primary" to={scope === 'expert' ? '/studio' : '/#experts'}>
+                  {scope === 'expert' ? 'Open Expert Studio' : 'Explore Experts'}{' '}
+                  <ArrowRight size={15} />
+                </Link>
+                <a className="btn btn-outline-secondary" href="/#how-it-works">
+                  How it works
+                </a>
+              </div>
+            </div>
+            <div className="booking-benefits">
+              <div>
+                <span className="booking-benefit-icon green">
+                  <UsersRound size={25} />
+                </span>
+                <div>
+                  <h3>Learn from verified experts</h3>
+                  <p>Get guidance from industry professionals.</p>
+                </div>
+              </div>
+              <div>
+                <span className="booking-benefit-icon blue">
+                  <CalendarDays size={25} />
+                </span>
+                <div>
+                  <h3>Flexible scheduling</h3>
+                  <p>Book at a time that works for you.</p>
+                </div>
+              </div>
+              <div>
+                <span className="booking-benefit-icon orange">
+                  <ShieldCheck size={25} />
+                </span>
+                <div>
+                  <h3>Secure &amp; private</h3>
+                  <p>Your meeting links stay in your private dashboard.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <div className="vstack gap-3">
+            {bookings.data.items.map((b: any) => (
+              <BookingCard
+                key={b._id}
+                b={b}
+                scope={scope}
+                action={action}
+                reload={bookings.reload}
+                checkoutEnabled={!!config.data?.checkoutEnabled}
+                onError={setError}
+              />
+            ))}
+          </div>
+        )}
+        <Pager page={page} setPage={setPage} total={bookings.data?.total ?? 0} />
+      </div>
     </div>
   );
 }
+function CalendarIllustration({ search = false }: { search?: boolean }) {
+  return (
+    <div className={`booking-calendar-art ${search ? 'with-search' : ''}`} aria-hidden="true">
+      <div className="booking-calendar-sheet">
+        <div className="booking-calendar-rings">
+          <i />
+          <i />
+          <i />
+        </div>
+        <div className="booking-calendar-grid">
+          {Array.from({ length: 9 }, (_, i) => (
+            <span key={i}>{!search && i === 1 && <Check size={17} />}</span>
+          ))}
+        </div>
+      </div>
+      {search && <Search className="booking-calendar-search" size={49} strokeWidth={1.6} />}
+      <span className="booking-calendar-spark" />
+    </div>
+  );
+}
+
 function BookingCard({
   b,
   scope,
