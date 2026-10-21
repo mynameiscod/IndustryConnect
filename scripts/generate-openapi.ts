@@ -549,8 +549,18 @@ add(
   undefined,
   'Collection',
   200,
-  '',
-  pages,
+  'Returns filtered items, filtered total and global summary {pending,approved,total,updatedThisMonth}. updatedThisMonth counts profile updates since the UTC month start, not active users. User fields contain name/email only; categories include _id/name. Search is escaped literal matching against user name/email and expert headline/bio. Sort uses createdAt or slug with _id as a stable tie breaker.',
+  {
+    ...pages,
+    q: { type: 'string', maxLength: 120 },
+    status: {
+      type: 'string',
+      enum: ['all', 'pending', 'approved', 'rejected', 'suspended'],
+      default: 'all',
+    },
+    category: { type: 'string', description: 'Category ObjectId or empty for all' },
+    sort: { type: 'string', enum: ['newest', 'oldest', 'slug'], default: 'newest' },
+  },
 );
 add(
   'patch',
@@ -577,8 +587,12 @@ add(
   undefined,
   'Collection',
   200,
-  '',
-  pages,
+  'Filtered items include expertCount for each category; counts reflect stored expert-category associations.',
+  {
+    ...pages,
+    q: { type: 'string', maxLength: 120 },
+    status: { type: 'string', enum: ['all', 'active', 'inactive'], default: 'all' },
+  },
 );
 add('post', '/admin/categories', 'Create category', 'admin', 'CategoryInput', 'Object', 201);
 add('put', '/admin/categories/{id}', 'Edit or archive category', 'admin', 'CategoryInput');
@@ -589,6 +603,55 @@ add(
   'Set commission, confirmation and payout policies',
   'admin',
   'SettingsInput',
+);
+add(
+  'get',
+  '/admin/invites',
+  'List beta invitations',
+  'admin',
+  undefined,
+  'Collection',
+  200,
+  'Admin-only email, active, createdAt and updatedAt; no email is sent.',
+  {
+    ...pages,
+    q: { type: 'string', maxLength: 120 },
+    status: { type: 'string', enum: ['all', 'active', 'revoked'], default: 'all' },
+  },
+);
+add(
+  'get',
+  '/admin/payments',
+  'List booking and recorded payout operations',
+  'admin',
+  undefined,
+  'Collection',
+  200,
+  'Read-only Mongo snapshot: filtered items and total, expert/customer names, optional payout {bookingId,status,amountPaise}; global summary {totalBookings,recordedPaidPaise,recordedPaidCount,payoutsToReconcile}. Recorded paid totals are not bank-settlement evidence. Date filters apply to startsAt in UTC with inclusive calendar-day bounds; q searches exact booking ObjectId or literal title/customer/expert name. Existing mutation gates are unchanged.',
+  {
+    ...pages,
+    q: { type: 'string', maxLength: 120 },
+    status: {
+      type: 'string',
+      enum: [
+        'all',
+        'held',
+        'pending_confirmation',
+        'confirmed',
+        'completed',
+        'cancelled',
+        'expired',
+      ],
+      default: 'all',
+    },
+    payout: {
+      type: 'string',
+      enum: ['all', 'none', 'processing', 'submitted', 'paid', 'unknown', 'failed'],
+      default: 'all',
+    },
+    from: { type: 'string', format: 'date' },
+    to: { type: 'string', format: 'date' },
+  },
 );
 add(
   'post',

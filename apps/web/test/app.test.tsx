@@ -979,3 +979,507 @@ describe('sign-in reference layout', () => {
     expect(screen.getByRole('button', { name: 'Send OTP' })).toBeTruthy();
   });
 });
+
+describe('responsive admin operations', () => {
+  function mockAdmin(failQueue = false) {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const p = String(url);
+      if (p === '/api/me')
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'admin1',
+            name: 'Test Admin',
+            roles: ['customer', 'admin'],
+            emailVerified: true,
+          }),
+        } as Response;
+      if (p === '/api/admin/overview')
+        return {
+          ok: true,
+          json: async () => ({
+            pendingExperts: 2,
+            bookings: 7,
+            refundsRequired: 1,
+            failedJobs: 0,
+            paymentBlockers: ['Checkout is disabled'],
+            providerStatus: {
+              email: false,
+              google: false,
+              calendar: false,
+              phone: false,
+              route: false,
+            },
+          }),
+        } as Response;
+      if (p === '/api/admin/exceptions')
+        return {
+          ok: !failQueue,
+          status: failQueue ? 503 : 200,
+          json: async () =>
+            failQueue
+              ? { error: { message: 'Queue is unavailable' } }
+              : { bookings: [], payouts: [], jobs: [] },
+        } as Response;
+      if (p.startsWith('/api/admin/ledger?'))
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ _id: 'ledger1', bookingId: 'booking1', kind: 'capture', grossPaise: 12345 }],
+          }),
+        } as Response;
+      if (p.startsWith('/api/admin/experts?'))
+        return { ok: true, json: async () => ({ items: [], total: 0 }) } as Response;
+      return fallback(url, init);
+    });
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    );
+  }
+  it('renders stored counts and honest integration states, with refresh', async () => {
+    mockAdmin();
+    const summary = await screen.findByRole('region', { name: 'Marketplace summary' });
+    expect(within(summary).getByText('7')).toBeTruthy();
+    expect(screen.getAllByText('Not connected')).toHaveLength(5);
+    expect(await screen.findByText('No exceptions found')).toBeTruthy();
+    expect(screen.queryByText('System Healthy')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === '/api/admin/overview').length,
+      ).toBe(2),
+    );
+  });
+  it('toggles the mobile menu and closes it after selecting a workflow', async () => {
+    mockAdmin();
+    await screen.findByText('No exceptions found');
+    const toggle = screen.getByRole('button', { name: 'Toggle admin navigation' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Admin navigation' })).getByRole('button', {
+        name: 'Experts',
+      }),
+    );
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(fetch)
+          .mock.calls.some(([url]) => String(url).includes('/api/admin/experts?page=1')),
+      ).toBe(true),
+    );
+  });
+  it('shows queue failure without claiming no exceptions and renders real report amounts', async () => {
+    mockAdmin(true);
+    expect(await screen.findByText('Queue is unavailable')).toBeTruthy();
+    expect(screen.queryByText('No exceptions found')).toBeNull();
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Admin navigation' })).getByRole('button', {
+        name: 'Reports',
+      }),
+    );
+    expect(await screen.findByText('booking1')).toBeTruthy();
+    expect(screen.getByText(/123\.45/)).toBeTruthy();
+  });
+});
+
+describe('expert verification workspace', () => {
+  function setup(failReview = false) {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const p = String(url);
+      let data: any;
+      if (p === '/api/me')
+        data = { id: 'admin1', name: 'Admin', roles: ['customer', 'admin'], emailVerified: true };
+      else if (p === '/api/admin/overview')
+        data = {
+          pendingExperts: 1,
+          bookings: 0,
+          refundsRequired: 0,
+          failedJobs: 0,
+          paymentBlockers: [],
+          providerStatus: {},
+        };
+      else if (p === '/api/admin/exceptions') data = { bookings: [], payouts: [], jobs: [] };
+      else if (p.startsWith('/api/admin/categories?'))
+        data = { items: [{ _id: 'cat1', name: 'Technology' }], total: 1 };
+      else if (p.startsWith('/api/admin/experts?'))
+        data = {
+          items: [
+            {
+              _id: 'e1',
+              userId: { name: 'Test Expert', email: 'expert@example.invalid' },
+              headline: 'Practical technology guidance',
+              bio: 'Review this profile evidence.',
+              verification: 'pending',
+              categories: [{ _id: 'cat1', name: 'Technology' }],
+              experienceYears: 5,
+              city: 'Hyderabad',
+              createdAt: '2026-10-01T00:00:00Z',
+            },
+          ],
+          total: 1,
+          summary: { pending: 1, approved: 0, total: 1, updatedThisMonth: 1 },
+        };
+      else if (p === '/api/admin/experts/e1/verification')
+        return {
+          ok: !failReview,
+          status: failReview ? 503 : 200,
+          json: async () => (failReview ? { error: { message: 'Review could not be saved' } } : {}),
+        } as Response;
+      else return fallback(url, init);
+      return { ok: true, json: async () => data } as Response;
+    });
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    );
+  }
+  async function openExperts() {
+    fireEvent.click(
+      await within(screen.getByRole('navigation', { name: 'Admin navigation' })).findByRole(
+        'button',
+        { name: 'Experts' },
+      ),
+    );
+    await screen.findByText('Test Expert');
+  }
+  it('applies server filters and shows stored category and experience without ratings', async () => {
+    setup();
+    await screen.findByText('No exceptions found');
+    await openExperts();
+    fireEvent.change(screen.getByLabelText('Search experts'), { target: { value: 'Practical' } });
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'pending' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(fetch)
+          .mock.calls.some(([url]) => String(url).includes('q=Practical&status=pending')),
+      ).toBe(true),
+    );
+    expect(screen.getByText('5 years experience')).toBeTruthy();
+    expect(screen.getByText('Profiles updated this month')).toBeTruthy();
+    expect(screen.queryByText(/12 reviews/)).toBeNull();
+  });
+  it('requires a review reason and retains the draft after failure', async () => {
+    setup(true);
+    await screen.findByText('No exceptions found');
+    await openExperts();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(
+      (screen.getByRole('button', { name: 'Save review decision' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: 'Reviewed the supplied profile evidence' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save review decision' }));
+    expect(await screen.findByText('Review could not be saved')).toBeTruthy();
+    expect((screen.getByLabelText('Review reason') as HTMLTextAreaElement).value).toBe(
+      'Reviewed the supplied profile evidence',
+    );
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => String(url) === '/api/admin/experts/e1/verification');
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+      status: 'approved',
+      reason: 'Reviewed the supplied profile evidence',
+    });
+  });
+});
+
+describe('admin management reference pages', () => {
+  function setup() {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const p = String(url);
+      let data: any;
+      if (p === '/api/me')
+        data = { id: 'a1', name: 'Admin', roles: ['customer', 'admin'], emailVerified: true };
+      else if (p === '/api/admin/overview')
+        data = {
+          pendingExperts: 0,
+          bookings: 0,
+          refundsRequired: 0,
+          failedJobs: 0,
+          paymentBlockers: [],
+          providerStatus: {},
+        };
+      else if (p === '/api/admin/exceptions') data = { bookings: [], payouts: [], jobs: [] };
+      else if (p.startsWith('/api/admin/categories?'))
+        data = {
+          items: [
+            { _id: 'c1', name: 'Technology', slug: 'technology', active: true, expertCount: 3 },
+          ],
+          total: 1,
+        };
+      else if (p === '/api/admin/categories/c1') data = {};
+      else if (p === '/api/admin/settings')
+        data = {
+          commissionBps: 1000,
+          confirmationPolicy: 'expert_choice',
+          payoutMode: 'manual',
+          payoutDelayHours: 48,
+          updatedAt: '2026-10-21',
+        };
+      else if (p.startsWith('/api/admin/invites?'))
+        data = {
+          items: [
+            {
+              _id: 'i1',
+              email: 'member@example.invalid',
+              active: true,
+              createdAt: '2026-10-21T10:00:00Z',
+            },
+          ],
+          total: 1,
+        };
+      else if (p === '/api/admin/invites') data = {};
+      else if (p.startsWith('/api/admin/payments?'))
+        data = {
+          items: [],
+          total: 0,
+          summary: {
+            totalBookings: 0,
+            recordedPaidPaise: 0,
+            recordedPaidCount: 0,
+            payoutsToReconcile: 0,
+          },
+        };
+      else return fallback(url, init);
+      return { ok: true, json: async () => data } as Response;
+    });
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    );
+  }
+  async function open(label: string) {
+    await screen.findByText('No exceptions found');
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Admin navigation' })).getByRole('button', {
+        name: label,
+      }),
+    );
+  }
+  it('loads editable categories and sends archive changes to the existing API', async () => {
+    setup();
+    await open('Categories');
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Technology' }));
+    expect((screen.getByLabelText('Category name') as HTMLInputElement).value).toBe('Technology');
+    fireEvent.click(screen.getByLabelText(/Active category/));
+    fireEvent.click(screen.getByRole('button', { name: 'Save category' }));
+    await screen.findByText('Category saved.');
+    const req = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/categories/c1' && init?.method === 'PUT',
+      );
+    expect(JSON.parse(String(req?.[1]?.body))).toEqual({
+      name: 'Technology',
+      slug: 'technology',
+      active: false,
+    });
+  });
+  it('saves exact commission basis points and existing policy modes', async () => {
+    setup();
+    await open('Policies');
+    fireEvent.change(await screen.findByLabelText('Platform commission (%)'), {
+      target: { value: '12.34' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save policies' }));
+    await screen.findByText(/Policies saved/);
+    const req = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/settings' && init?.method === 'PUT',
+      );
+    expect(JSON.parse(String(req?.[1]?.body))).toEqual({
+      commissionBps: 1234,
+      confirmationPolicy: 'expert_choice',
+      payoutMode: 'manual',
+      payoutDelayHours: 48,
+    });
+  });
+  it('revokes a stored invitation without claiming a sent email', async () => {
+    setup();
+    await open('Invitations');
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Revoke access for member@example.invalid' }),
+    );
+    expect(await screen.findByText(/no invitation email was sent/)).toBeTruthy();
+    const req = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) => String(url) === '/api/admin/invites' && init?.method === 'POST',
+      );
+    expect(JSON.parse(String(req?.[1]?.body))).toEqual({
+      email: 'member@example.invalid',
+      active: false,
+    });
+  });
+  it('uses server payment filters and displays true zero report states', async () => {
+    setup();
+    await open('Payments');
+    await screen.findByText('No bookings match these filters');
+    expect(screen.getByText('Recorded paid payouts')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Search payments'), {
+      target: { value: 'consultation' },
+    });
+    fireEvent.change(screen.getByLabelText('Payout status'), { target: { value: 'unknown' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(fetch)
+          .mock.calls.some(([url]) =>
+            String(url).includes('q=consultation&status=all&payout=unknown'),
+          ),
+      ).toBe(true),
+    );
+  });
+});
+
+describe('expert detail reservation reference', () => {
+  const firstTime = '2030-11-03T10:00:00Z',
+    secondTime = '2030-11-04T12:00:00Z';
+  const timeLabel = (value: string) =>
+    new Intl.DateTimeFormat('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }).format(new Date(value));
+  function setup(empty = false, noServices = false) {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      let data: any;
+      if (path === '/api/me')
+        data = { id: 'customer1', name: 'Customer', roles: ['customer'], emailVerified: true };
+      else if (path === '/api/experts/detail-expert')
+        data = {
+          id: 'e1',
+          name: 'Test Expert',
+          headline: 'Thoughtful professional guidance',
+          bio: 'Stored profile biography.',
+          verified: true,
+          city: 'Hyderabad',
+          languages: ['English', 'Telugu'],
+          experienceYears: 8,
+          categories: ['c1'],
+          reviews: [],
+          services: noServices
+            ? []
+            : [
+                {
+                  id: 's1',
+                  title: 'Founder office hours',
+                  description: 'A focused conversation about your business.',
+                  durationMinutes: 45,
+                  pricePaise: 249900,
+                  mode: 'online',
+                },
+                {
+                  id: 's2',
+                  title: 'Strategy follow-up',
+                  description: 'Review your next steps.',
+                  durationMinutes: 30,
+                  pricePaise: 150000,
+                  mode: 'online',
+                },
+              ],
+        };
+      else if (path.startsWith('/api/categories'))
+        data = { items: [{ id: 'c1', name: 'Business Strategy' }], total: 1 };
+      else if (path === '/api/services/s1/slots')
+        data = {
+          items: empty
+            ? []
+            : [
+                { _id: 'slot1', startsAt: firstTime, endsAt: '2030-11-03T10:45:00Z' },
+                { _id: 'slot2', startsAt: secondTime, endsAt: '2030-11-04T12:45:00Z' },
+              ],
+        };
+      else if (path === '/api/services/s2/slots')
+        data = { items: [{ _id: 'slot3', startsAt: secondTime, endsAt: '2030-11-04T12:30:00Z' }] };
+      else if (path === '/api/bookings')
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ error: { message: 'Reservation temporarily unavailable' } }),
+        } as Response;
+      else return fallback(url, init);
+      return { ok: true, json: async () => data } as Response;
+    });
+    render(
+      <MemoryRouter initialEntries={['/experts/detail-expert']}>
+        <App />
+      </MemoryRouter>,
+    );
+  }
+  it('shows actual profile facts, service price and truthful review and payment states', async () => {
+    setup();
+    await screen.findByRole('heading', { name: 'Test Expert' });
+    expect(screen.getByText('8 years experience')).toBeTruthy();
+    expect(await screen.findByText('Business Strategy')).toBeTruthy();
+    expect(
+      screen.getByText('No reviews yet. Only customers with completed paid bookings can review.'),
+    ).toBeTruthy();
+    expect(screen.getByText(/Payments are disabled. This reservation/)).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Reserve this session' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+  it('requires a time and terms, and reuses the reservation key after a failed request', async () => {
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: timeLabel(firstTime) }));
+    const reserve = screen.getByRole('button', { name: 'Reserve this session' });
+    expect((reserve as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(reserve);
+    await screen.findByText('Reservation temporarily unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Reserve this session' }));
+    await screen.findByText('Reservation temporarily unavailable');
+    const requests = vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === '/api/bookings');
+    expect(requests).toHaveLength(2);
+    const keys = requests.map(
+      ([, init]) => (init?.headers as Record<string, string>)['Idempotency-Key'],
+    );
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+    expect(JSON.parse(String(requests[0][1]?.body))).toEqual({
+      slotId: 'slot1',
+      termsAccepted: true,
+    });
+  });
+  it('clears selected times when switching service', async () => {
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: timeLabel(firstTime) }));
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /Strategy follow-up/ }));
+    await screen.findByRole('button', { name: timeLabel(secondTime) });
+    expect(
+      (screen.getByRole('button', { name: 'Reserve this session' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+  it('handles empty availability and missing services without fabricating times', async () => {
+    setup(true);
+    await screen.findByText('No upcoming slots. Check back soon.');
+    expect(
+      (screen.getByRole('button', { name: 'Reserve this session' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.queryByRole('button', { name: timeLabel(firstTime) })).toBeNull();
+    cleanup();
+    setup(false, true);
+    expect(
+      await screen.findByRole('heading', { name: 'No published services available' }),
+    ).toBeTruthy();
+  });
+});

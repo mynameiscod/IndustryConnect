@@ -231,12 +231,10 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
     }
     // Deliberately return the same response for existing accounts.
     if (!existing) await sendCode(c, p, data.email, 'verify');
-    res
-      .status(202)
-      .json({
-        message:
-          'If eligible, a verification code has been sent. Existing members can sign in or request a new code.',
-      });
+    res.status(202).json({
+      message:
+        'If eligible, a verification code has been sent. Existing members can sign in or request a new code.',
+    });
   });
   app.post('/api/auth/email/request', codeLimit, async (req, res) => {
     const { email: target } = z.object({ email }).strict().parse(req.body);
@@ -604,7 +602,12 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
   app.put('/api/expert/slots/:id', requireUser, async (req, res) => {
     const data = slotInput.parse(req.body);
     res.json(
-      await addSlot(res.locals.user._id, data.serviceId, new Date(data.startsAt), id.parse(req.params.id)),
+      await addSlot(
+        res.locals.user._id,
+        data.serviceId,
+        new Date(data.startsAt),
+        id.parse(req.params.id),
+      ),
     );
   });
   app.get('/api/expert/slots', requireUser, async (req, res) => {
@@ -616,10 +619,7 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
       endsAt: { $gt: new Date() },
     };
     res.json({
-      items: await Slot.find(filter)
-        .sort({ startsAt: 1 })
-        .skip(pg.skip)
-        .limit(pg.limit),
+      items: await Slot.find(filter).sort({ startsAt: 1 }).skip(pg.skip).limit(pg.limit),
       total: await Slot.countDocuments(filter),
       page: pg.page,
     });
@@ -705,9 +705,27 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
   );
   app.get('/api/expert/earnings', requireUser, async (req, res) => {
     const expert = await expertFor(res.locals.user._id);
-    const query = z.object({months:z.coerce.number().int().refine(value=>[3,6,12].includes(value)).default(6),timezone:z.string().max(100).default('Asia/Kolkata'),status:z.enum(['all','paid','processing','submitted','unknown','failed']).default('all')}).parse(req.query);
+    const query = z
+      .object({
+        months: z.coerce
+          .number()
+          .int()
+          .refine((value) => [3, 6, 12].includes(value))
+          .default(6),
+        timezone: z.string().max(100).default('Asia/Kolkata'),
+        status: z
+          .enum(['all', 'paid', 'processing', 'submitted', 'unknown', 'failed'])
+          .default('all'),
+      })
+      .parse(req.query);
     const pagination = pageMeta(req.query);
-    res.json(await expertEarnings(c,expert._id,{...query,page:pagination.page,limit:pagination.limit}));
+    res.json(
+      await expertEarnings(c, expert._id, {
+        ...query,
+        page: pagination.page,
+        limit: pagination.limit,
+      }),
+    );
   });
 
   app.use('/api/admin', requireUser, requireAdmin);
@@ -729,14 +747,49 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
   );
   app.get('/api/admin/experts', async (req, res) => {
     const pg = pageMeta(req.query);
-    res.json({
-      items: await Expert.find()
+    const filters = z
+      .object({
+        q: z.string().trim().max(120).default(''),
+        status: z.enum(['all', 'pending', 'approved', 'rejected', 'suspended']).default('all'),
+        category: z.union([id, z.literal('')]).default(''),
+        sort: z.enum(['newest', 'oldest', 'slug']).default('newest'),
+      })
+      .parse(req.query);
+    const query: Record<string, any> = {};
+    if (filters.status !== 'all') query.verification = filters.status;
+    if (filters.category) query.categories = filters.category;
+    if (filters.q) {
+      const regex = new RegExp(escapeRegex(filters.q), 'i');
+      const users = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id');
+      query.$or = [
+        { userId: { $in: users.map((u) => u._id) } },
+        { headline: regex },
+        { bio: regex },
+      ];
+    }
+    const month = new Date();
+    month.setUTCDate(1);
+    month.setUTCHours(0, 0, 0, 0);
+    const [items, total, pending, approved, all, updatedThisMonth] = await Promise.all([
+      Expert.find(query)
         .populate('userId', 'name email')
-        .sort({ createdAt: -1 })
+        .populate({ path: 'categories', model: 'Category', select: 'name' })
+        .sort(
+          filters.sort === 'oldest'
+            ? { createdAt: 1, _id: 1 }
+            : filters.sort === 'slug'
+              ? { slug: 1, _id: 1 }
+              : { createdAt: -1, _id: -1 },
+        )
         .skip(pg.skip)
         .limit(pg.limit),
-      total: await Expert.countDocuments(),
-    });
+      Expert.countDocuments(query),
+      Expert.countDocuments({ verification: 'pending' }),
+      Expert.countDocuments({ verification: 'approved' }),
+      Expert.countDocuments(),
+      Expert.countDocuments({ updatedAt: { $gte: month } }),
+    ]);
+    res.json({ items, total, summary: { pending, approved, total: all, updatedThisMonth } });
   });
   app.patch('/api/admin/experts/:id/verification', async (req, res) => {
     const data = z
@@ -771,9 +824,33 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
   });
   app.get('/api/admin/categories', async (req, res) => {
     const pg = pageMeta(req.query);
+    const f = z
+      .object({
+        q: z.string().trim().max(120).default(''),
+        status: z.enum(['all', 'active', 'inactive']).default('all'),
+      })
+      .parse(req.query);
+    const query: Record<string, any> = {};
+    if (f.q)
+      query.$or = [
+        { name: new RegExp(escapeRegex(f.q), 'i') },
+        { slug: new RegExp(escapeRegex(f.q), 'i') },
+      ];
+    if (f.status !== 'all') query.active = f.status === 'active';
+    const items = await Category.find(query)
+      .sort({ name: 1, _id: 1 })
+      .skip(pg.skip)
+      .limit(pg.limit)
+      .lean();
+    const counts = await Expert.aggregate([
+      { $match: { categories: { $in: items.map((c) => c._id) } } },
+      { $unwind: '$categories' },
+      { $group: { _id: '$categories', count: { $sum: 1 } } },
+    ]);
+    const byId = new Map(counts.map((c) => [String(c._id), c.count]));
     res.json({
-      items: await Category.find().sort({ name: 1, _id: 1 }).skip(pg.skip).limit(pg.limit),
-      total: await Category.countDocuments(),
+      items: items.map((c) => ({ ...c, expertCount: byId.get(String(c._id)) ?? 0 })),
+      total: await Category.countDocuments(query),
     });
   });
   app.post('/api/admin/categories', async (req, res) => {
@@ -798,6 +875,123 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
     await settings.save();
     await audit(res.locals.user._id, 'settings.update', settings._id, req.body);
     res.json(settings);
+  });
+  app.get('/api/admin/invites', async (req, res) => {
+    const pg = pageMeta(req.query);
+    const f = z
+      .object({
+        q: z.string().trim().max(120).default(''),
+        status: z.enum(['all', 'active', 'revoked']).default('all'),
+      })
+      .parse(req.query);
+    const query: Record<string, any> = {};
+    if (f.q) query.email = new RegExp(escapeRegex(f.q), 'i');
+    if (f.status !== 'all') query.active = f.status === 'active';
+    res.json({
+      items: await Invite.find(query)
+        .select('email active createdAt updatedAt')
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(pg.skip)
+        .limit(pg.limit),
+      total: await Invite.countDocuments(query),
+    });
+  });
+  app.get('/api/admin/payments', async (req, res) => {
+    const pg = pageMeta(req.query);
+    const f = z
+      .object({
+        q: z.string().trim().max(120).default(''),
+        status: z
+          .enum([
+            'all',
+            'held',
+            'pending_confirmation',
+            'confirmed',
+            'completed',
+            'cancelled',
+            'expired',
+          ])
+          .default('all'),
+        payout: z
+          .enum(['all', 'none', 'processing', 'submitted', 'paid', 'unknown', 'failed'])
+          .default('all'),
+        from: z.union([z.iso.date(), z.literal('')]).default(''),
+        to: z.union([z.iso.date(), z.literal('')]).default(''),
+      })
+      .parse(req.query);
+    assert(
+      !f.from || !f.to || f.from <= f.to,
+      400,
+      'INVALID_RANGE',
+      'Start date must not follow end date',
+    );
+    const query: Record<string, any> = {};
+    if (f.status !== 'all') query.status = f.status;
+    if (f.from || f.to) {
+      query.startsAt = {};
+      if (f.from) query.startsAt.$gte = new Date(f.from + 'T00:00:00Z');
+      if (f.to) query.startsAt.$lt = new Date(+new Date(f.to + 'T00:00:00Z') + 86400000);
+    }
+    if (f.q) {
+      const regex = new RegExp(escapeRegex(f.q), 'i');
+      const users = await User.find({ name: regex }).select('_id');
+      const experts = await Expert.find({ userId: { $in: users.map((u) => u._id) } }).select('_id');
+      query.$or = [
+        { title: regex },
+        { customerId: { $in: users.map((u) => u._id) } },
+        { expertId: { $in: experts.map((e) => e._id) } },
+      ];
+      if (mongoose.isValidObjectId(f.q)) query.$or.push({ _id: new mongoose.Types.ObjectId(f.q) });
+    }
+    if (f.payout !== 'all') {
+      const payouts = await Payout.find(f.payout === 'none' ? {} : { status: f.payout }).select(
+        'bookingId',
+      );
+      query._id = { [f.payout === 'none' ? '$nin' : '$in']: payouts.map((p) => p.bookingId) };
+    }
+    const result = await mongoose.connection.transaction(
+      async (session) => {
+        const items = await Booking.find(query)
+          .populate('customerId', 'name')
+          .populate({
+            path: 'expertId',
+            select: 'userId',
+            populate: { path: 'userId', select: 'name' },
+          })
+          .sort({ startsAt: -1, _id: -1 })
+          .skip(pg.skip)
+          .limit(pg.limit)
+          .session(session)
+          .lean();
+        const total = await Booking.countDocuments(query).session(session);
+        const payouts = await Payout.find({ bookingId: { $in: items.map((b) => b._id) } })
+          .select('bookingId status amountPaise')
+          .session(session)
+          .lean();
+        const sums = await Payout.aggregate([
+          { $group: { _id: '$status', count: { $sum: 1 }, amountPaise: { $sum: '$amountPaise' } } },
+        ]).session(session);
+        const totalBookings = await Booking.countDocuments().session(session);
+        const paid = sums.find((p) => p._id === 'paid');
+        return {
+          items: items.map((b) => ({
+            ...b,
+            payout: payouts.find((p) => String(p.bookingId) === String(b._id)) ?? null,
+          })),
+          total,
+          summary: {
+            totalBookings,
+            recordedPaidPaise: paid?.amountPaise ?? 0,
+            recordedPaidCount: paid?.count ?? 0,
+            payoutsToReconcile: sums
+              .filter((p) => ['processing', 'submitted', 'unknown'].includes(p._id))
+              .reduce((sum, p) => sum + p.count, 0),
+          },
+        };
+      },
+      { readConcern: { level: 'snapshot' } },
+    );
+    res.json(result);
   });
   app.post('/api/admin/invites', async (req, res) => {
     const data = z
@@ -875,23 +1069,19 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
   app.use(
     (error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
       if (error instanceof z.ZodError)
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: 'VALIDATION_ERROR',
-              message: error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-            },
-          });
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+          },
+        });
       if (error?.code === 11000)
-        return res
-          .status(409)
-          .json({
-            error: {
-              code: 'CONFLICT',
-              message: 'This record already exists or was changed by another request',
-            },
-          });
+        return res.status(409).json({
+          error: {
+            code: 'CONFLICT',
+            message: 'This record already exists or was changed by another request',
+          },
+        });
       if (error instanceof AppError)
         return res
           .status(error.status)

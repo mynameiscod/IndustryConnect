@@ -14,10 +14,23 @@ import {
   Route,
   Routes,
   useNavigate,
+  useLocation,
   useParams,
   useSearchParams,
 } from 'react-router-dom';
 import {
+  Download,
+  SlidersHorizontal,
+  Menu,
+  House,
+  Settings,
+  Bell,
+  RefreshCw,
+  TriangleAlert,
+  FolderOpen,
+  Phone,
+  LayoutGrid,
+  CreditCard,
   Mail,
   LockKeyhole,
   EyeOff,
@@ -195,6 +208,7 @@ function Protected({ children, admin = false }: { children: ReactNode; admin?: b
 }
 export function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true);
@@ -271,8 +285,17 @@ export function App() {
               )}
             </nav>
             <div className="d-flex align-items-center gap-3 ms-lg-auto">
-              <Link className="btn btn-outline-secondary btn-sm" to="/studio">
-                Become an Expert
+              <Link
+                className="btn btn-outline-secondary btn-sm"
+                to={location.pathname === '/admin' ? '/' : '/studio'}
+              >
+                {location.pathname === '/admin' ? (
+                  <>
+                    Go to Website <ArrowUpRight size={13} />
+                  </>
+                ) : (
+                  'Become an Expert'
+                )}
               </Link>
               {user ? (
                 <details className="account-menu">
@@ -995,35 +1018,86 @@ function CustomerStories({ experts }: { experts: any[] }) {
 function ExpertDetail() {
   const { slug } = useParams();
   const info = useData(`/experts/${slug}`),
-    [serviceId, setServiceId] = useState(''),
+    config = useData('/config'),
+    categories = useData('/categories?limit=100');
+  const [serviceId, setServiceId] = useState(''),
     [slotId, setSlotId] = useState(''),
+    [day, setDay] = useState(''),
     [accepted, setAccepted] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
+  const reservationKey = useRef<{ slotId: string; key: string } | null>(null);
   const selected =
     info.data?.services.find((s: any) => s.id === serviceId) ?? info.data?.services[0];
   const slots = useData(selected ? `/services/${selected.id}/slots` : null);
   const { user } = useContext(Auth);
   const navigate = useNavigate();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const dayKey = (value: string) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(value));
+    return ['year', 'month', 'day']
+      .map((key) => parts.find((p) => p.type === key)?.value)
+      .join('-');
+  };
+  const groups = new Map<string, any[]>();
+  for (const slot of slots.data?.items ?? []) {
+    const key = dayKey(slot.startsAt);
+    groups.set(key, [...(groups.get(key) ?? []), slot]);
+  }
+  const days = [...groups.keys()].sort();
+  const activeDay = day || days[0] || '';
+  const chosenSlot = (slots.data?.items ?? []).find(
+    (slot: any) => slot._id === slotId && dayKey(slot.startsAt) === activeDay,
+  );
+  useEffect(() => {
+    setServiceId('');
+    setSlotId('');
+    setDay('');
+    setAccepted(false);
+    setError('');
+    reservationKey.current = null;
+  }, [slug]);
   if (info.loading) return <Loader />;
   if (info.error)
     return (
-      <div className="container py-4 py-lg-5">
+      <div className="container py-5">
         <Alert>{info.error}</Alert>
+        <Link to="/">Back to experts</Link>
       </div>
     );
   const e = info.data;
+  if (!e || !selected)
+    return (
+      <Empty title="No published services available">
+        <Link to="/">Back to experts</Link>
+      </Empty>
+    );
+  const categoryNames = (e.categories ?? [])
+    .map((c: any) =>
+      typeof c === 'object'
+        ? c.name
+        : categories.data?.items?.find((item: any) => (item.id || item._id) === c)?.name,
+    )
+    .filter(Boolean);
   async function book() {
+    if (!chosenSlot || !accepted || busy) return;
     if (!user) {
       navigate('/auth');
       return;
     }
     setBusy(true);
     setError('');
+    if (reservationKey.current?.slotId !== slotId)
+      reservationKey.current = { slotId, key: crypto.randomUUID() };
     try {
       await api('/bookings', {
         method: 'POST',
-        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        headers: { 'Idempotency-Key': reservationKey.current.key },
         body: JSON.stringify({ slotId, termsAccepted: accepted }),
       });
       navigate('/dashboard');
@@ -1034,123 +1108,238 @@ function ExpertDetail() {
     }
   }
   return (
-    <div className="container py-4 py-lg-5">
-      <Link className="icon-link" to="/">
-        <ChevronLeft size={16} /> Back to experts
-      </Link>
-      <div className="row g-4 mt-3">
-        <div className="col-lg-7">
-          <section>
-            <div className="d-flex flex-wrap align-items-center gap-3 mb-4">
-              <div className="avatar avatar-lg bg-primary-subtle text-primary rounded-circle d-flex align-items-center justify-content-center fw-bold">
+    <div className="expert-detail-page">
+      <div className="container expert-detail-shell">
+        <Link className="expert-back" to="/#experts">
+          <ChevronLeft size={17} /> Back to experts
+        </Link>
+        <div className="expert-detail-layout">
+          <section className="expert-detail-profile">
+            <header className="expert-detail-identity">
+              <span className="expert-detail-avatar">
                 {e.name
                   .split(' ')
-                  .map((n: string) => n[0])
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part: string) => part[0])
                   .join('')}
-              </div>
+              </span>
               <div>
-                <span className="badge text-bg-success d-inline-flex align-items-center gap-1 mb-2">
-                  <ShieldCheck size={14} /> Verified expert
-                </span>
+                {e.verified && (
+                  <span className="expert-verified">
+                    <CircleCheck size={14} /> Verified expert
+                  </span>
+                )}
                 <h1>{e.name}</h1>
-                <h3>{e.headline}</h3>
-                <div className="d-flex flex-wrap align-items-center gap-3 small text-body-secondary">
-                  <span>
-                    <MapPin size={15} />
-                    {e.city}
-                  </span>
-                  <span>
-                    <Globe size={15} />
-                    {e.languages.join(', ')}
-                  </span>
-                </div>
+                <p>{e.headline}</p>
               </div>
-            </div>
-            <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-              <h2>A little about me</h2>
-              <p className="text-break preserve">{e.bio}</p>
-            </div>
-            <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-              <h2>Ways we can work together</h2>
-              {e.services.map((s: any) => (
-                <button
-                  className={`btn btn-outline-primary w-100 text-start d-flex flex-wrap justify-content-between gap-3 mb-3 p-3 ${selected?.id === s.id ? 'active' : ''}`}
-                  key={s.id}
-                  onClick={() => {
-                    setServiceId(s.id);
-                    setSlotId('');
-                  }}
-                >
-                  <div>
-                    <h3>{s.title}</h3>
-                    <p>{s.description}</p>
-                    <span>
-                      <Clock size={14} /> {s.durationMinutes} min ·{' '}
-                      {s.mode === 'online' ? 'Google Meet' : s.location}
-                    </span>
-                  </div>
-                  <strong>{formatMoney(s.pricePaise)}</strong>
-                </button>
-              ))}
-            </div>
-            <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-              <h2>Verified customer reviews</h2>
-              {e.reviews.length ? (
-                e.reviews.map((r: any) => (
-                  <article className="border-top pt-3 mt-3" key={r._id}>
-                    <span className="d-inline-flex align-items-center gap-1 small text-warning-emphasis">
-                      <Star size={15} />
-                      {r.rating}/5 · Verified booking
-                    </span>
-                    <p>{r.text}</p>
-                  </article>
-                ))
-              ) : (
-                <p>No reviews yet. Only customers with completed paid bookings can review.</p>
+            </header>
+            <div className="expert-detail-facts">
+              {e.city && (
+                <span>
+                  <MapPin size={18} />
+                  {e.city}
+                </span>
+              )}
+              {e.languages?.length > 0 && (
+                <span>
+                  <Languages size={18} />
+                  {e.languages.join(', ')}
+                </span>
+              )}
+              {e.experienceYears != null && (
+                <span>
+                  <CalendarDays size={18} />
+                  {e.experienceYears} years experience
+                </span>
               )}
             </div>
+            {!!categoryNames.length && (
+              <div className="expert-detail-tags">
+                {categoryNames.map((name: string) => (
+                  <span key={name}>{name}</span>
+                ))}
+              </div>
+            )}
+            <section className="expert-profile-panel">
+              <span className="expert-panel-icon peach">
+                <UserRound size={25} />
+              </span>
+              <div>
+                <h2>A little about me</h2>
+                <p className="preserve">{e.bio}</p>
+              </div>
+            </section>
+            <section className="expert-profile-panel expert-services-panel">
+              <span className="expert-panel-icon green">
+                <UsersRound size={25} />
+              </span>
+              <div className="flex-grow-1">
+                <h2>Ways we can work together</h2>
+                <div className="expert-detail-services">
+                  {e.services.map((service: any) => (
+                    <button
+                      key={service.id}
+                      className={selected.id === service.id ? 'selected' : ''}
+                      aria-pressed={selected.id === service.id}
+                      disabled={busy}
+                      onClick={() => {
+                        setServiceId(service.id);
+                        setSlotId('');
+                        setDay('');
+                        setError('');
+                      }}
+                    >
+                      <CircleCheck size={18} />
+                      <span>
+                        <strong>{service.title}</strong>
+                        <span>{service.description}</span>
+                        <small>
+                          {service.durationMinutes} minutes /{' '}
+                          {service.mode === 'online' ? 'Online' : service.location} /{' '}
+                          {formatMoney(service.pricePaise)}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            <section className="expert-profile-panel">
+              <span className="expert-panel-icon neutral">
+                <Star size={25} fill="currentColor" />
+              </span>
+              <div className="flex-grow-1">
+                <h2>Verified customer reviews</h2>
+                {e.reviews?.length ? (
+                  e.reviews.map((r: any) => (
+                    <article className="expert-detail-review" key={r._id}>
+                      <span>
+                        <Star size={14} />
+                        {r.rating}/5 / Verified booking
+                      </span>
+                      <p>{r.text}</p>
+                    </article>
+                  ))
+                ) : (
+                  <p>No reviews yet. Only customers with completed paid bookings can review.</p>
+                )}
+              </div>
+            </section>
           </section>
-        </div>
-        <div className="col-lg-5">
-          <aside className="card p-3 p-lg-4 mb-4 shadow-sm">
-            <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-              MAKE SOME TIME
-            </span>
+          <aside className="expert-reservation" aria-label="Reserve a session">
+            <span className="expert-reservation-kicker">MAKE SOME TIME</span>
             <h2>{selected.title}</h2>
-            <p>
-              <Clock size={16} /> {selected.durationMinutes} minutes{' '}
-              <span className="fs-3 fw-bold">{formatMoney(selected.pricePaise)}</span>
-            </p>
+            <p className="expert-reservation-description">{selected.description}</p>
+            <div className="expert-session-price">
+              <span>
+                <Clock size={18} />
+                {selected.durationMinutes} minutes
+              </span>
+              <strong>{formatMoney(selected.pricePaise)}</strong>
+            </div>
+            {selected.mode === 'in_person' && (
+              <p className="expert-reservation-location">
+                <MapPin size={15} />
+                {selected.location}
+              </p>
+            )}
             <hr />
             <h3>Choose your time</h3>
-            <p className="text-body-secondary small">
-              Shown in {Intl.DateTimeFormat().resolvedOptions().timeZone}
-            </p>
+            <p className="expert-slot-timezone">Times shown in {timezone}</p>
             {slots.loading ? (
               <Loader />
             ) : slots.error ? (
               <Alert>{slots.error}</Alert>
-            ) : slots.data?.items.length ? (
-              <div className="d-flex flex-wrap gap-2 mb-3">
-                {slots.data.items.map((s: any) => (
-                  <button
-                    key={s._id}
-                    className={`btn btn-outline-primary btn-sm ${slotId === s._id ? 'active' : ''}`}
-                    onClick={() => setSlotId(s._id)}
-                  >
-                    {date(s.startsAt)}
-                  </button>
-                ))}
+            ) : !days.length ? (
+              <div className="expert-no-slots">
+                <CalendarDays size={25} />
+                <p>No upcoming slots. Check back soon.</p>
               </div>
             ) : (
-              <p>No upcoming slots. Check back soon.</p>
+              <>
+                <div className="expert-day-picker" aria-label="Available dates">
+                  {days.map((key) => {
+                    const first = groups.get(key)![0];
+                    return (
+                      <button
+                        key={key}
+                        disabled={busy}
+                        aria-pressed={activeDay === key}
+                        className={activeDay === key ? 'active' : ''}
+                        onClick={() => {
+                          setDay(key);
+                          setSlotId('');
+                          setError('');
+                        }}
+                      >
+                        <span>
+                          {new Intl.DateTimeFormat('en-IN', {
+                            weekday: 'short',
+                            timeZone: timezone,
+                          }).format(new Date(first.startsAt))}
+                        </span>
+                        <strong>
+                          {new Intl.DateTimeFormat('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            timeZone: timezone,
+                          }).format(new Date(first.startsAt))}
+                        </strong>
+                      </button>
+                    );
+                  })}
+                </div>
+                <label className="expert-calendar-filter">
+                  Choose a date
+                  <input
+                    className="form-control"
+                    aria-label="Choose availability date"
+                    type="date"
+                    value={activeDay}
+                    min={days[0]}
+                    max={days[days.length - 1]}
+                    disabled={busy}
+                    onChange={(event) => {
+                      setDay(event.target.value);
+                      setSlotId('');
+                    }}
+                  />
+                </label>
+                <div className="expert-time-picker" aria-label="Available times">
+                  {(groups.get(activeDay) ?? []).map((slot) => (
+                    <button
+                      key={slot._id}
+                      className={slotId === slot._id ? 'active' : ''}
+                      aria-pressed={slotId === slot._id}
+                      disabled={busy}
+                      onClick={() => {
+                        setSlotId(slot._id);
+                        setError('');
+                      }}
+                    >
+                      {new Intl.DateTimeFormat('en-IN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: timezone,
+                      }).format(new Date(slot.startsAt))}
+                    </button>
+                  ))}
+                </div>
+                {!groups.has(activeDay) && (
+                  <p className="expert-slot-timezone">
+                    No available times on this date. Choose one of the available dates above.
+                  </p>
+                )}
+              </>
             )}
-            <label className="d-flex align-items-start gap-2 form-check-label mb-3">
+            <label className="expert-booking-terms">
               <input
-                className="form-check-input flex-shrink-0"
+                className="form-check-input"
                 type="checkbox"
                 checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
+                disabled={busy}
+                onChange={(event) => setAccepted(event.target.checked)}
               />
               <span>
                 I accept the <Link to="/guidelines">beta booking and cancellation guidelines</Link>.
@@ -1158,17 +1347,30 @@ function ExpertDetail() {
             </label>
             {error && <Alert>{error}</Alert>}
             <button
-              className="btn btn-primary w-100"
-              disabled={!slotId || !accepted || busy}
+              className="btn btn-primary expert-reserve-button"
+              disabled={!chosenSlot || !accepted || busy || slots.loading || !!slots.error}
               onClick={book}
             >
-              {busy ? 'Reserving…' : 'Reserve this session'}
-              <ArrowRight size={16} />
+              {busy ? 'Reserving...' : 'Reserve this session'}
+              <ArrowRight size={18} />
             </button>
-            <p className="small text-body-secondary mt-3">
-              Your time is held for 10 minutes while you complete payment. Confirmation follows the
-              expert’s current policy.
-            </p>
+            {config.data?.checkoutEnabled === false ? (
+              <p className="expert-reservation-note">
+                <ShieldCheck size={18} />
+                <span>
+                  Payments are disabled. This reservation is a temporary 10-minute hold; no money
+                  will be collected.
+                </span>
+              </p>
+            ) : (
+              <p className="expert-reservation-note">
+                <ShieldCheck size={18} />
+                <span>
+                  Your time is held for 10 minutes while you complete payment. Confirmation follows
+                  the booking policy.
+                </span>
+              </p>
+            )}
           </aside>
         </div>
       </div>
@@ -3895,43 +4097,207 @@ function EarningsChart({ monthly }: { monthly: EarningsData['monthly'] }) {
   );
 }
 
+const adminSections = [
+  { id: 'overview', label: 'Overview', icon: LayoutGrid },
+  { id: 'experts', label: 'Experts', icon: UsersRound },
+  { id: 'categories', label: 'Categories', icon: Layers },
+  { id: 'policies', label: 'Policies', icon: Shield },
+  { id: 'payments', label: 'Payments', icon: CreditCard },
+  { id: 'reports', label: 'Reports', icon: ChartNoAxesColumnIncreasing },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'invitations', label: 'Invitations', icon: Mail },
+  { id: 'settings', label: 'Settings', icon: Settings },
+];
 function Admin() {
   const [tab, setTab] = useState('overview');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const CalloutIcon =
+    tab === 'categories'
+      ? Layers
+      : tab === 'invitations'
+        ? Mail
+        : tab === 'payments'
+          ? WalletCards
+          : ShieldCheck;
+  const selectTab = (next: string) => {
+    setTab(next);
+    setMenuOpen(false);
+  };
   return (
-    <div className="container py-4 py-lg-5">
-      <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
-        <div>
-          <span className="d-block small fw-semibold text-uppercase text-body-secondary mb-3">
-            MARKETPLACE OPERATIONS
-          </span>
-          <h1>Keep good connections running.</h1>
-          <p>Verification, policies and every detail that builds trust.</p>
+    <div className="admin-workspace">
+      <div className="admin-mobile-bar">
+        <strong>Marketplace operations</strong>
+        <button
+          className="btn btn-outline-secondary btn-sm"
+          aria-label="Toggle admin navigation"
+          aria-expanded={menuOpen}
+          aria-controls="admin-sidebar"
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          {menuOpen ? <X size={19} /> : <Menu size={19} />} Menu
+        </button>
+      </div>
+      <aside id="admin-sidebar" className={`admin-sidebar ${menuOpen ? 'is-open' : ''}`}>
+        <Link className="admin-sidebar-home" to="/admin" onClick={() => selectTab('overview')}>
+          <House size={20} /> Admin Dashboard
+        </Link>
+        <span className="admin-sidebar-kicker">MARKETPLACE OPERATIONS</span>
+        <nav aria-label="Admin navigation">
+          {adminSections.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              aria-current={tab === id ? 'page' : undefined}
+              className={tab === id ? 'active' : ''}
+              onClick={() => selectTab(id)}
+            >
+              <Icon size={19} />
+              {label}
+            </button>
+          ))}
+        </nav>
+        <Link className="admin-website-link" to="/">
+          Go to website <ArrowUpRight size={16} />
+        </Link>
+      </aside>
+      <div className="admin-main">
+        <header className="admin-welcome">
+          <div>
+            <span>MARKETPLACE OPERATIONS</span>
+            <h1>
+              {tab === 'payments'
+                ? 'Bookings, reconciliation & payouts'
+                : 'Keep good connections running.'}
+            </h1>
+            <p>
+              {tab === 'categories'
+                ? 'Manage professional categories that help users find the right experts.'
+                : tab === 'payments'
+                  ? 'Track bookings, manage payouts and reconcile payment records.'
+                  : 'Verification, policies and every detail that builds trust.'}
+            </p>
+          </div>
+          {['experts', 'categories', 'policies', 'settings', 'payments', 'invitations'].includes(
+            tab,
+          ) ? (
+            <div className="admin-expert-callout">
+              <CalloutIcon size={29} />
+              <div>
+                <strong>
+                  {
+                    {
+                      experts: 'Expert verification',
+                      categories: 'Organize skills, grow faster',
+                      policies: 'Set fair policies',
+                      settings: 'Set fair policies',
+                      payments: 'Secure & transparent payouts',
+                      invitations: 'Invite trusted users',
+                    }[tab]
+                  }
+                </strong>
+                <p>
+                  {
+                    {
+                      experts:
+                        'Review and approve expert profiles to maintain a trusted marketplace.',
+                      categories:
+                        'Well-structured categories make it easier to find the right experts.',
+                      policies: 'Manage commissions, payouts and booking rules.',
+                      settings: 'Manage commissions, payouts and booking rules.',
+                      payments: 'Review stored payment records and reconcile provider outcomes.',
+                      invitations: 'Control who can access the beta and test safely.',
+                    }[tab]
+                  }
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="admin-beta-status">
+              <span className="admin-status-dot" />
+              <div>
+                <strong>Controlled beta</strong>
+                <small>Live transactions disabled</small>
+              </div>
+            </div>
+          )}
+        </header>
+        <div className="admin-section-nav">
+          <nav aria-label="Admin sections">
+            {adminSections
+              .filter((s) =>
+                [
+                  'overview',
+                  'experts',
+                  'categories',
+                  'policies',
+                  'payments',
+                  'invitations',
+                ].includes(s.id),
+              )
+              .map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  aria-current={tab === id ? 'page' : undefined}
+                  className={tab === id ? 'active' : ''}
+                  onClick={() => selectTab(id)}
+                >
+                  <Icon size={18} />
+                  {label}
+                </button>
+              ))}
+          </nav>
         </div>
-        <span className="badge text-bg-warning align-self-start">Controlled beta</span>
+        <div className="admin-panel-content">
+          {tab === 'overview' && <AdminOverview onNavigate={selectTab} />}
+          {tab === 'experts' && <AdminExperts />}
+          {tab === 'categories' && <AdminCategories />}
+          {(tab === 'policies' || tab === 'settings') && <AdminPolicies />}
+          {tab === 'payments' && <AdminPayments />}
+          {tab === 'invitations' && <Invitations />}
+          {tab === 'reports' && <AdminLedger />}
+          {tab === 'notifications' && <AdminExceptions notificationsOnly />}
+        </div>
       </div>
-      <div className="nav nav-pills flex-wrap gap-2 mb-4">
-        {['overview', 'experts', 'categories', 'policies', 'payments', 'invitations'].map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={tab === t ? 'nav-link active' : 'nav-link'}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      {tab === 'overview' && <AdminOverview />}
-      {tab === 'experts' && <AdminExperts />}
-      {tab === 'categories' && <AdminCategories />}
-      {tab === 'policies' && <AdminPolicies />}
-      {tab === 'payments' && <AdminPayments />}
-      {tab === 'invitations' && <Invitations />}
     </div>
   );
 }
-function AdminOverview() {
-  const o = useData('/admin/overview'),
-    exceptions = useData('/admin/exceptions');
+function AdminOverview({ onNavigate }: { onNavigate: (tab: string) => void }) {
+  const o = useData('/admin/overview');
+  const cards = o.data
+    ? [
+        {
+          label: 'Experts awaiting review',
+          value: o.data.pendingExperts,
+          hint: 'Pending verification',
+          icon: UsersRound,
+          tone: 'blue',
+          target: 'experts',
+        },
+        {
+          label: 'Total bookings',
+          value: o.data.bookings,
+          hint: 'All time bookings',
+          icon: CalendarDays,
+          tone: 'green',
+          target: 'payments',
+        },
+        {
+          label: 'Refunds to process',
+          value: o.data.refundsRequired,
+          hint: 'Requires operator processing',
+          icon: RefreshCw,
+          tone: 'orange',
+          target: 'payments',
+        },
+        {
+          label: 'Failed notification jobs',
+          value: o.data.failedJobs,
+          hint: 'Needs attention',
+          icon: TriangleAlert,
+          tone: 'purple',
+          target: 'notifications',
+        },
+      ]
+    : [];
   return (
     <>
       {o.error && <Alert>{o.error}</Alert>}
@@ -3940,173 +4306,766 @@ function AdminOverview() {
       ) : (
         o.data && (
           <>
-            <div className="row row-cols-1 row-cols-sm-2 row-cols-xl-4 g-3 mb-4">
-              {[
-                ['Experts awaiting review', o.data.pendingExperts],
-                ['Total bookings', o.data.bookings],
-                ['Refunds to process', o.data.refundsRequired],
-                ['Failed notification jobs', o.data.failedJobs],
-              ].map(([label, value]) => (
-                <article key={label}>
-                  <div className="card card-body h-100 gap-2">
-                    <span>{label}</span>
-                    <strong className="fs-2 fw-semibold">{value}</strong>
-                  </div>
-                </article>
+            <section className="admin-metrics" aria-label="Marketplace summary">
+              {cards.map(({ label, value, hint, icon: Icon, tone, target }) => (
+                <button
+                  className={`admin-metric ${tone}`}
+                  key={label}
+                  onClick={() => onNavigate(target)}
+                >
+                  <span className="admin-metric-icon">
+                    <Icon size={20} />
+                  </span>
+                  <span className="admin-metric-label">{label}</span>
+                  <strong>{value}</strong>
+                  <span className="admin-metric-bottom">
+                    {hint}
+                    <ArrowRight size={17} />
+                  </span>
+                </button>
               ))}
-            </div>
-            <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-              <h2>Payment readiness</h2>
+            </section>
+            <section className="admin-surface admin-readiness">
+              <div className="admin-panel-heading">
+                <span className="admin-heading-icon">
+                  <Mail size={24} />
+                </span>
+                <h2>Payment readiness</h2>
+                <button className="btn btn-outline-secondary btn-sm ms-auto" onClick={o.reload}>
+                  <RefreshCw size={14} /> Refresh status
+                </button>
+              </div>
               {o.data.paymentBlockers.length ? (
-                o.data.paymentBlockers.map((b: string) => (
-                  <Alert key={b} kind="info">
-                    {b}
-                  </Alert>
+                o.data.paymentBlockers.map((blocker: string) => (
+                  <div className="admin-checkout-notice" role="status" key={blocker}>
+                    <CircleHelp size={23} />
+                    <div>
+                      <strong>{blocker}</strong>
+                      {blocker === 'Checkout is disabled' && (
+                        <p>
+                          Payments are disabled in this build. Reserved slots expire automatically
+                          after 10 minutes. No money will be collected.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 ))
               ) : (
-                <p>
-                  Test checkout is configured. Live launch still requires the complete release
-                  review.
-                </p>
+                <div className="admin-checkout-notice">
+                  <CircleHelp size={23} />
+                  <div>
+                    Test checkout is configured. Live launch still requires the complete release
+                    review.
+                  </div>
+                </div>
               )}
-              <div className="d-flex flex-wrap gap-3 my-4">
-                {Object.entries(o.data.providerStatus).map(([key, value]) => (
-                  <span key={key}>
-                    <span
-                      className={`badge rounded-pill ${value ? 'text-bg-success' : 'text-bg-secondary'}`}
-                    />
-                    {key}: {value ? 'configured' : 'not connected'}
-                  </span>
+              <div className="admin-providers">
+                {[
+                  { key: 'email', label: 'Email', icon: Mail },
+                  { key: 'google', label: 'Google', icon: Globe },
+                  { key: 'calendar', label: 'Calendar', icon: CalendarDays },
+                  { key: 'phone', label: 'Phone', icon: Phone },
+                  { key: 'route', label: 'Route', icon: Hexagon },
+                ].map(({ key, label, icon: Icon }) => (
+                  <div key={key}>
+                    <span className="admin-provider-icon">
+                      <Icon size={22} />
+                    </span>
+                    <div>
+                      <strong>{label}</strong>
+                      <span
+                        className={o.data.providerStatus[key] ? 'configured' : 'not-configured'}
+                      >
+                        <i />
+                        {o.data.providerStatus[key] ? 'Configured' : 'Not connected'}
+                      </span>
+                    </div>
+                  </div>
                 ))}
               </div>
-              <p className="small text-body-secondary mt-3">
-                Configured does not mean externally tested or approved.
-              </p>
-            </div>
-            <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-              <h2>Exception queue</h2>
-              {exceptions.error && <Alert>{exceptions.error}</Alert>}
-              <p>
-                {exceptions.data?.bookings.length ?? 0} booking exceptions ·{' '}
-                {exceptions.data?.payouts.length ?? 0} payouts awaiting reconciliation ·{' '}
-                {exceptions.data?.jobs.length ?? 0} failed jobs
-              </p>
-              <p>
-                Use Payments to reconcile captured/refunded payments. Ambiguous provider orders and
-                transfers must be reviewed before retrying.
-              </p>
-            </div>
+              <div className="admin-readiness-note">
+                <Settings size={18} />
+                <span>Configured does not mean externally tested or approved.</span>
+                <button onClick={() => onNavigate('settings')}>
+                  Go to settings <ArrowRight size={14} />
+                </button>
+              </div>
+            </section>
           </>
         )
       )}
+      <AdminExceptions onNavigate={onNavigate} />
     </>
+  );
+}
+function AdminExceptions({
+  onNavigate,
+  notificationsOnly = false,
+}: {
+  onNavigate?: (tab: string) => void;
+  notificationsOnly?: boolean;
+}) {
+  const q = useData('/admin/exceptions');
+  const groups: { key: string; label: string }[] = notificationsOnly
+    ? [{ key: 'jobs', label: 'Failed jobs' }]
+    : [
+        { key: 'bookings', label: 'Booking exceptions' },
+        { key: 'payouts', label: 'Payouts awaiting reconciliation' },
+        { key: 'jobs', label: 'Failed jobs' },
+      ];
+  const total = q.data ? groups.reduce((sum, g) => sum + q.data[g.key].length, 0) : null;
+  return (
+    <section className="admin-surface admin-exceptions">
+      <div className="admin-panel-heading">
+        <span className="admin-heading-icon">
+          <Clock size={24} />
+        </span>
+        <div>
+          <h2>{notificationsOnly ? 'Notification jobs' : 'Exception queue'}</h2>
+          {q.data && (
+            <p>
+              {groups.map((g) => `${q.data[g.key].length} ${g.label.toLowerCase()}`).join(' / ')}
+            </p>
+          )}
+        </div>
+        <button className="btn btn-outline-secondary btn-sm ms-auto" onClick={q.reload}>
+          <RefreshCw size={14} /> Refresh queue
+        </button>
+      </div>
+      <p className="admin-exception-guidance">
+        Use Payments to reconcile captured/refunded payments. Ambiguous provider orders and
+        transfers must be reviewed before retrying. Queue lists show up to 100 records per type.
+      </p>
+      {q.loading ? (
+        <Loader />
+      ) : q.error ? (
+        <Alert>{q.error}</Alert>
+      ) : total === 0 ? (
+        <div className="admin-queue-empty">
+          <FolderOpen size={31} />
+          <strong>{notificationsOnly ? 'No failed jobs found' : 'No exceptions found'}</strong>
+          <p>No {notificationsOnly ? 'failed jobs' : 'exceptions'} returned in this queue.</p>
+        </div>
+      ) : (
+        <div className="admin-queue-groups">
+          {groups
+            .filter((g) => q.data?.[g.key].length)
+            .map((g) => (
+              <div key={g.key}>
+                <h3>{g.label}</h3>
+                <ul>
+                  {q.data[g.key].map((item: any) => (
+                    <li key={item._id}>
+                      <code>{item._id}</code>
+                      <span>{item.paymentStatus || item.status || 'Requires review'}</span>
+                      {item.type && <span>{item.type}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </div>
+      )}
+      {onNavigate && (
+        <button className="admin-queue-action" onClick={() => onNavigate('payments')}>
+          Open payments <ArrowRight size={15} />
+        </button>
+      )}
+    </section>
+  );
+}
+function AdminLedger() {
+  const [page, setPage] = useState(1);
+  const ledger = useData(`/admin/ledger?page=${page}`);
+  return (
+    <section className="admin-surface">
+      <h2 className="admin-report-title">Ledger report</h2>
+      <p className="text-body-secondary small">
+        Stored ledger entries. This is not provider settlement certification.
+      </p>
+      {ledger.loading ? (
+        <Loader />
+      ) : ledger.error ? (
+        <Alert>{ledger.error}</Alert>
+      ) : !ledger.data?.items.length ? (
+        <Empty title="No ledger entries on this page" />
+      ) : (
+        <>
+          <div className="table-responsive">
+            <table className="table align-middle">
+              <thead>
+                <tr>
+                  <th>Entry</th>
+                  <th>Booking</th>
+                  <th>Type</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.data.items.map((row: any) => (
+                  <tr key={row._id}>
+                    <td>
+                      <code>{row._id}</code>
+                    </td>
+                    <td>
+                      <code>{row.bookingId}</code>
+                    </td>
+                    <td>{row.kind}</td>
+                    <td>
+                      {Number.isSafeInteger(row.grossPaise)
+                        ? formatMoney(row.grossPaise)
+                        : 'Unavailable'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      <div className="d-flex justify-content-between align-items-center gap-3">
+        <button
+          className="btn btn-outline-secondary btn-sm"
+          disabled={page === 1}
+          onClick={() => setPage(page - 1)}
+        >
+          Previous
+        </button>
+        <span>Page {page}</span>
+        <button
+          className="btn btn-outline-secondary btn-sm"
+          disabled={!ledger.data || ledger.data.items.length < 24}
+          onClick={() => setPage(page + 1)}
+        >
+          Next
+        </button>
+      </div>
+    </section>
   );
 }
 function AdminExperts() {
   const [page, setPage] = useState(1),
-    [error, setError] = useState('');
-  const experts = useData(`/admin/experts?page=${page}`);
-  async function verify(e: any, status: string) {
-    const reason = window.prompt(`Reason for ${status} (at least 5 characters):`);
-    if (!reason) return;
+    [query, setQuery] = useState(''),
+    [status, setStatus] = useState('all'),
+    [category, setCategory] = useState(''),
+    [sort, setSort] = useState('newest');
+  const [applied, setApplied] = useState(''),
+    [error, setError] = useState(''),
+    [notice, setNotice] = useState('');
+  const [review, setReview] = useState<{ expert: any; status: string } | null>(null),
+    [reason, setReason] = useState(''),
+    [busy, setBusy] = useState(false);
+  const [categoryPage, setCategoryPage] = useState(1),
+    [categoryOptions, setCategoryOptions] = useState<any[]>([]);
+  const categories = useData(`/admin/categories?page=${categoryPage}&limit=100`);
+  useEffect(() => {
+    if (Array.isArray(categories.data?.items))
+      setCategoryOptions((previous) => {
+        const map = new Map(previous.map((c) => [c._id, c]));
+        for (const c of categories.data.items) map.set(c._id, c);
+        return [...map.values()];
+      });
+  }, [categories.data]);
+  const experts = useData(`/admin/experts?page=${page}${applied ? '&' + applied : ''}`);
+  function filter(nextStatus = status) {
+    setStatus(nextStatus);
+    setPage(1);
+    setApplied(new URLSearchParams({ q: query, status: nextStatus, category, sort }).toString());
+  }
+  async function verify(event: FormEvent) {
+    event.preventDefault();
+    if (!review) return;
+    setBusy(true);
+    setError('');
     try {
-      await post(`/admin/experts/${e._id}/verification`, { status, reason }, 'PATCH');
+      await post(
+        `/admin/experts/${review.expert._id}/verification`,
+        { status: review.status, reason: reason.trim() },
+        'PATCH',
+      );
+      setNotice(`Expert ${review.status}.`);
+      setReview(null);
+      setReason('');
       experts.reload();
-    } catch (err) {
-      setError(msg(err));
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setBusy(false);
     }
   }
+  function exportPage() {
+    const cell = (value: unknown) => {
+      let text = String(value ?? '');
+      if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
+      return '"' + text.replaceAll('"', '""') + '"';
+    };
+    const rows = [
+      ['Name', 'Email', 'Headline', 'Status', 'Experience years', 'Joined'],
+      ...(experts.data?.items ?? []).map((e: any) => [
+        e.userId?.name,
+        e.userId?.email,
+        e.headline,
+        e.verification,
+        e.experienceYears,
+        e.createdAt,
+      ]),
+    ];
+    const url = URL.createObjectURL(
+      new Blob([rows.map((row) => row.map(cell).join(',')).join('\r\n')], {
+        type: 'text/csv;charset=utf-8',
+      }),
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `expert-review-page-${page}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+  const summary = experts.data?.summary;
   return (
-    <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-      <h2>Expert verification</h2>
-      {error && <Alert>{error}</Alert>}
-      {experts.error && <Alert>{experts.error}</Alert>}
-      {experts.loading ? (
-        <Loader />
-      ) : (
-        experts.data?.items.map((e: any) => (
-          <article
-            className="d-flex flex-column flex-lg-row justify-content-between gap-3 border-top py-4"
-            key={e._id}
-          >
-            <div>
-              <span className={`badge ${statusColor(e.verification)}`}>{e.verification}</span>
-              <h3>{e.userId.name}</h3>
-              <p>{e.headline}</p>
-              <p>{e.bio}</p>
-              <small>
-                {e.userId.email} · {e.city} · {e.experienceYears} years
-              </small>
+    <div className="expert-admin">
+      {summary && (
+        <section className="expert-review-metrics" aria-label="Expert summary">
+          {[
+            {
+              label: 'Experts awaiting review',
+              value: summary.pending,
+              hint: 'View pending',
+              status: 'pending',
+              icon: UserRound,
+              tone: 'blue',
+            },
+            {
+              label: 'Verified experts',
+              value: summary.approved,
+              hint: 'View approved',
+              status: 'approved',
+              icon: CircleCheck,
+              tone: 'green',
+            },
+            {
+              label: 'Total experts',
+              value: summary.total,
+              hint: 'Manage experts',
+              status: 'all',
+              icon: Clock,
+              tone: 'orange',
+            },
+            {
+              label: 'Profiles updated this month',
+              value: summary.updatedThisMonth,
+              hint: 'UTC calendar month',
+              status: null,
+              icon: ChartNoAxesColumnIncreasing,
+              tone: 'purple',
+            },
+          ].map(({ label, value, hint, status: next, icon: Icon, tone }) => (
+            <div className={`expert-review-metric ${tone}`} key={label}>
+              <span className="expert-review-metric-icon">
+                <Icon size={23} />
+              </span>
+              <div>
+                <span>{label}</span>
+                <strong>{value}</strong>
+                {next ? (
+                  <button onClick={() => filter(next)}>
+                    {hint}
+                    <ArrowRight size={13} />
+                  </button>
+                ) : (
+                  <small>{hint}</small>
+                )}
+              </div>
             </div>
-            <div className="d-flex flex-wrap align-items-center gap-2">
-              <button className="btn btn-primary btn-sm" onClick={() => verify(e, 'approved')}>
-                Approve
-              </button>
-              <button
-                className="btn btn-outline-secondary btn-sm"
-                onClick={() => verify(e, 'rejected')}
-              >
-                Reject
-              </button>
-              <button className="btn btn-link p-0" onClick={() => verify(e, 'suspended')}>
-                Suspend
-              </button>
-            </div>
-          </article>
-        ))
+          ))}
+        </section>
       )}
-      <Pager page={page} setPage={setPage} total={experts.data?.total ?? 0} />
+      <form
+        className="expert-admin-filters"
+        onSubmit={(e) => {
+          e.preventDefault();
+          filter();
+        }}
+      >
+        <label className="expert-admin-search">
+          <span className="visually-hidden">Search experts</span>
+          <Search size={18} />
+          <input
+            className="form-control"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search experts by name, email or expertise..."
+            maxLength={120}
+          />
+        </label>
+        <label>
+          Status
+          <select
+            className="form-select"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+          >
+            <option value="all">All</option>
+            <option value="pending">Pending review</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </label>
+        <label>
+          Category
+          <select
+            className="form-select"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
+            <option value="">All categories</option>
+            {categoryOptions.map((c) => (
+              <option value={c._id} key={c._id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Sort by
+          <select className="form-select" value={sort} onChange={(e) => setSort(e.target.value)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="slug">Profile slug A-Z</option>
+          </select>
+        </label>
+        <button className="btn btn-primary" type="submit">
+          <SlidersHorizontal size={16} /> Filter
+        </button>
+        {categories.data && categoryOptions.length < categories.data.total && (
+          <button
+            className="btn btn-link"
+            type="button"
+            disabled={categories.loading}
+            onClick={() => setCategoryPage(categoryPage + 1)}
+          >
+            Load more categories
+          </button>
+        )}
+      </form>
+      {categories.error && <Alert>{categories.error}</Alert>}
+      <section className="admin-surface expert-verification-list">
+        <div className="expert-verification-heading">
+          <div>
+            <h2>Expert verification{experts.data ? ` (${experts.data.total})` : ''}</h2>
+            <p>Review expert profiles, verify details and approve or reject.</p>
+          </div>
+          <button
+            className="btn btn-outline-secondary btn-sm"
+            disabled={experts.loading || !experts.data?.items.length}
+            onClick={exportPage}
+          >
+            <Download size={16} /> Export page
+          </button>
+        </div>
+        {error && <Alert>{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
+        {experts.loading ? (
+          <Loader />
+        ) : experts.error ? (
+          <Alert>{experts.error}</Alert>
+        ) : !experts.data?.items.length ? (
+          <Empty title="No experts match these filters">Try a different search or status.</Empty>
+        ) : (
+          <div className="expert-review-list">
+            {experts.data.items.map((e: any) => (
+              <article className="expert-review-row" key={e._id}>
+                <div className="expert-review-identity">
+                  <span className="expert-review-avatar">
+                    {(e.userId?.name || 'Expert')
+                      .split(' ')
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((part: string) => part[0])
+                      .join('')}
+                  </span>
+                  <div>
+                    <h3>{e.userId?.name || 'Account unavailable'}</h3>
+                    <p>{e.headline}</p>
+                    <div className="expert-review-meta">
+                      {e.userId?.email && (
+                        <span>
+                          <Mail size={13} />
+                          {e.userId.email}
+                        </span>
+                      )}
+                      {e.createdAt && (
+                        <span>
+                          <CalendarDays size={13} />
+                          Joined{' '}
+                          {new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(
+                            new Date(e.createdAt),
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="expert-review-details">
+                  <div className="expert-review-tags">
+                    {e.categories?.map((c: any) => (
+                      <span key={c._id || c}>{c.name || 'Category unavailable'}</span>
+                    ))}
+                  </div>
+                  <div className="expert-review-meta">
+                    <span>
+                      <FileText size={14} />
+                      {e.experienceYears ?? 'Not provided'}
+                      {e.experienceYears != null ? ' years experience' : ''}
+                    </span>
+                    {e.city && (
+                      <span>
+                        <MapPin size={13} />
+                        {e.city}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="expert-review-actions">
+                  <span className={`badge ${statusColor(e.verification)}`}>
+                    {e.verification === 'pending' ? 'Pending review' : e.verification}
+                  </span>
+                  <div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={busy || e.verification === 'approved'}
+                      onClick={() => {
+                        setReview({ expert: e, status: 'approved' });
+                        setReason('');
+                        setError('');
+                      }}
+                    >
+                      <Check size={13} /> Approve
+                    </button>
+                    <button
+                      className="btn btn-outline-secondary btn-sm"
+                      disabled={busy || e.verification === 'rejected'}
+                      onClick={() => {
+                        setReview({ expert: e, status: 'rejected' });
+                        setReason('');
+                        setError('');
+                      }}
+                    >
+                      Reject
+                    </button>
+                    <details className="expert-review-more">
+                      <summary aria-label={`More actions for ${e.userId?.name || 'expert'}`}>
+                        <MoreHorizontal size={18} />
+                      </summary>
+                      <div>
+                        <button
+                          onClick={(event) => {
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                            setReview({ expert: e, status: 'suspended' });
+                            setReason('');
+                          }}
+                        >
+                          Suspend expert
+                        </button>
+                        <button
+                          onClick={(event) => {
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                            setReview({ expert: e, status: 'details' });
+                          }}
+                        >
+                          Review profile
+                        </button>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        <Pager page={page} setPage={setPage} total={experts.data?.total ?? 0} />
+        {review && (
+          <section className="expert-review-editor" aria-label="Review selected expert">
+            <h3>
+              {review.status === 'details'
+                ? 'Profile details'
+                : `${review.status === 'approved' ? 'Approve' : review.status === 'rejected' ? 'Reject' : 'Suspend'} expert`}
+              : {review.expert.userId?.name}
+            </h3>
+            <p>{review.expert.bio}</p>
+            {review.status === 'details' ? (
+              <button className="btn btn-outline-secondary" onClick={() => setReview(null)}>
+                Close details
+              </button>
+            ) : (
+              <form onSubmit={verify}>
+                <Field label="Review reason">
+                  <textarea
+                    className="form-control"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    minLength={5}
+                    maxLength={500}
+                    required
+                    placeholder="Record the evidence and reason for this decision."
+                  />
+                </Field>
+                <p className="small text-body-secondary">
+                  Approval publishes the expert subject to the existing marketplace policies.
+                </p>
+                <div className="d-flex gap-2">
+                  <button className="btn btn-primary" disabled={busy || reason.trim().length < 5}>
+                    {busy ? 'Saving...' : 'Save review decision'}
+                  </button>
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setReview(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </section>
+        )}
+      </section>
     </div>
   );
 }
 function AdminCategories() {
   const [page, setPage] = useState(1),
+    [q, setQ] = useState(''),
+    [status, setStatus] = useState('all'),
     [error, setError] = useState(''),
+    [notice, setNotice] = useState(''),
     [editing, setEditing] = useState<any>(null),
-    [busy, setBusy] = useState(false);
-  const categories = useData(`/admin/categories?page=${page}`);
+    [busy, setBusy] = useState(false),
+    [resetKey, setResetKey] = useState(0);
+  const categories = useData(
+    `/admin/categories?page=${page}&q=${encodeURIComponent(q)}&status=${status}`,
+  );
+  function reset() {
+    setEditing(null);
+    setResetKey((k) => k + 1);
+    setError('');
+  }
   return (
-    <div className="row g-4">
-      <div className="col-lg-6">
-        <section className="card p-3 p-lg-4 mb-4 shadow-sm">
-          <h2>Professional categories</h2>
-          <p className="text-body-secondary small">
-            Create as many categories as the marketplace needs. Archiving hides their services from
-            discovery.
-          </p>
-          {categories.error && <Alert>{categories.error}</Alert>}
-          {categories.data?.items.map((c: any) => (
-            <button
-              className="btn btn-outline-secondary w-100 text-start d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"
-              key={c._id}
-              onClick={() => setEditing(c)}
-            >
-              <span>{c.name}</span>
-              <span className="text-body-secondary small">
-                {c.active ? 'Active' : 'Archived'} <ChevronRight size={15} />
-              </span>
-            </button>
-          ))}
-          <Pager page={page} setPage={setPage} total={categories.data?.total ?? 0} />
-        </section>
-      </div>
-      <div className="col-lg-6">
+    <div className="admin-category-layout admin-page-spacing">
+      <section className="admin-surface">
+        <h2>Professional categories</h2>
+        <p className="admin-muted">
+          These categories organize marketplace discovery. Activate or archive categories anytime.
+        </p>
+        <div className="admin-list-filters">
+          <label className="admin-search-field">
+            <Search size={17} />
+            <input
+              className="form-control"
+              aria-label="Search categories"
+              value={q}
+              maxLength={120}
+              placeholder="Search categories..."
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <select
+            className="form-select"
+            aria-label="Category status"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Archived</option>
+          </select>
+        </div>
+        {categories.loading ? (
+          <Loader />
+        ) : categories.error ? (
+          <Alert>{categories.error}</Alert>
+        ) : !categories.data?.items.length ? (
+          <Empty title="No categories found" />
+        ) : (
+          <div className="table-responsive admin-data-table">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Category name</th>
+                  <th>Unique slug</th>
+                  <th>Status</th>
+                  <th>Experts</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.data.items.map((c: any, i: number) => (
+                  <tr key={c._id}>
+                    <td>{(page - 1) * 24 + i + 1}</td>
+                    <td>{c.name}</td>
+                    <td>{c.slug}</td>
+                    <td>
+                      <span
+                        className={`badge ${c.active ? 'text-bg-success' : 'text-bg-secondary'}`}
+                      >
+                        {c.active ? 'Active' : 'Archived'}
+                      </span>
+                    </td>
+                    <td>{c.expertCount ?? 'Unavailable'}</td>
+                    <td>
+                      <button
+                        className="btn btn-link btn-sm"
+                        aria-label={`Edit ${c.name}`}
+                        onClick={() => {
+                          setEditing(c);
+                          setError('');
+                          setNotice('');
+                        }}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <AdminListCount page={page} total={categories.data?.total ?? 0} />
+        <Pager page={page} setPage={setPage} total={categories.data?.total ?? 0} />
+      </section>
+      <section className="admin-surface admin-category-editor">
+        <h2>{editing ? 'Edit category' : 'Add a new category'}</h2>
+        <p className="admin-muted">
+          Create a category to organize expert services on the marketplace.
+        </p>
+        {error && <Alert>{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
         <form
-          key={editing?._id ?? 'new'}
-          className="card p-3 p-lg-4 mb-4 shadow-sm"
+          key={`${editing?._id ?? 'new'}-${resetKey}`}
           onSubmit={async (e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
-            setError('');
             setBusy(true);
+            setError('');
             try {
               await post(
-                `/admin/categories${editing ? `/${editing._id}` : ''}`,
+                `/admin/categories${editing ? '/' + editing._id : ''}`,
                 { name: f.get('name'), slug: f.get('slug'), active: f.get('active') === 'on' },
                 editing ? 'PUT' : 'POST',
               );
-              setEditing(null);
+              reset();
               categories.reload();
+              setNotice('Category saved.');
             } catch (err) {
               setError(msg(err));
             } finally {
@@ -4114,14 +5073,14 @@ function AdminCategories() {
             }
           }}
         >
-          <h2>{editing ? 'Edit category' : 'Add a category'}</h2>
-          {error && <Alert>{error}</Alert>}
           <Field label="Category name">
             <input
               className="form-control"
               name="name"
-              defaultValue={editing?.name}
+              defaultValue={editing?.name ?? ''}
+              placeholder="e.g. Marketing & Growth"
               minLength={2}
+              maxLength={80}
               required
             />
           </Field>
@@ -4129,31 +5088,60 @@ function AdminCategories() {
             <input
               className="form-control"
               name="slug"
-              defaultValue={editing?.slug}
+              defaultValue={editing?.slug ?? ''}
+              placeholder="e.g. marketing-growth"
+              maxLength={80}
               pattern="[a-z0-9]+(-[a-z0-9]+)*"
               required
             />
+            <small>Use lowercase letters, numbers and hyphens only.</small>
           </Field>
-          <label className="d-flex align-items-start gap-2 form-check-label mb-3">
+          <label className="admin-check-label">
             <input
-              className="form-check-input flex-shrink-0"
+              className="form-check-input"
               type="checkbox"
               name="active"
               defaultChecked={editing?.active ?? true}
             />{' '}
-            Active category
+            <span>
+              Active category
+              <small>Archived categories hide affected listings from discovery.</small>
+            </span>
           </label>
-          <div className="d-flex flex-wrap align-items-center gap-2">
-            <button className="btn btn-primary" disabled={busy}>
-              Save category
-            </button>
-            <button className="btn btn-link p-0" type="button" onClick={() => setEditing(null)}>
-              New category
-            </button>
-          </div>
+          <button className="btn btn-primary w-100" disabled={busy}>
+            Save category
+          </button>
+          <button
+            className="btn btn-outline-secondary w-100 mt-2"
+            type="button"
+            disabled={busy}
+            onClick={reset}
+          >
+            Cancel
+          </button>
         </form>
-      </div>
+        <aside className="admin-info-panel mt-4">
+          <CircleHelp size={25} />
+          <div>
+            <h3>Tips for better categories</h3>
+            <ul>
+              <li>Use clear and specific names</li>
+              <li>Keep the slug short and descriptive</li>
+              <li>Group similar services together</li>
+            </ul>
+          </div>
+        </aside>
+      </section>
     </div>
+  );
+}
+function AdminListCount({ page, total }: { page: number; total: number }) {
+  return (
+    <p className="admin-list-count">
+      {total
+        ? `Showing ${(page - 1) * 24 + 1}-${Math.min(page * 24, total)} of ${total}`
+        : 'No records'}
+    </p>
   );
 }
 function AdminPolicies() {
@@ -4166,13 +5154,14 @@ function AdminPolicies() {
   const s = settings.data;
   return (
     <form
-      className="card p-3 p-lg-4 mb-4 shadow-sm"
+      className="admin-surface admin-policies admin-page-spacing"
       key={s.updatedAt}
       onSubmit={async (e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
         setBusy(true);
         setError('');
+        setNotice('');
         try {
           await post(
             '/admin/settings',
@@ -4195,10 +5184,18 @@ function AdminPolicies() {
         }
       }}
     >
-      <h2>Marketplace policies</h2>
+      <div className="admin-page-heading">
+        <span>
+          <FileText size={28} />
+        </span>
+        <div>
+          <h2>Marketplace policies</h2>
+          <p>Configure commission, booking and payout settings for the expert marketplace.</p>
+        </div>
+      </div>
       {error && <Alert>{error}</Alert>}
       {notice && <Alert kind="success">{notice}</Alert>}
-      <div className="row row-cols-1 row-cols-md-2 gx-4">
+      <div className="admin-policy-grid">
         <Field label="Platform commission (%)">
           <input
             className="form-control"
@@ -4236,11 +5233,20 @@ function AdminPolicies() {
           />
         </Field>
       </div>
-      <Alert kind="info">
-        Automatic payouts require Route approval, a ready linked account and reconciliation. This
-        setting cannot enable live transactions.
-      </Alert>
-      <button className="btn btn-primary" disabled={busy}>
+      <div className="admin-info-panel">
+        <CircleHelp size={26} />
+        <div>
+          <h3>Automatic payouts require additional setup</h3>
+          <p>
+            Automatic payouts require Route approval, a ready linked account and reconciliation.
+            This setting cannot enable live transactions.
+          </p>
+          <Link to="/guidelines">
+            Learn more <ArrowRight size={14} />
+          </Link>
+        </div>
+      </div>
+      <button className="btn btn-primary w-100 mt-3" disabled={busy}>
         Save policies <Check size={17} />
       </button>
     </form>
@@ -4249,11 +5255,19 @@ function AdminPolicies() {
 function AdminPayments() {
   const [page, setPage] = useState(1),
     [error, setError] = useState(''),
-    [notice, setNotice] = useState('');
-  const bookings = useData(`/bookings?scope=admin&page=${page}`);
+    [notice, setNotice] = useState(''),
+    [q, setQ] = useState(''),
+    [status, setStatus] = useState('all'),
+    [payout, setPayout] = useState('all'),
+    [from, setFrom] = useState(''),
+    [to, setTo] = useState(''),
+    [applied, setApplied] = useState(''),
+    [busy, setBusy] = useState(false);
+  const bookings = useData(`/admin/payments?page=${page}${applied ? '&' + applied : ''}`);
   async function run(b: any, kind: string) {
     setError('');
     setNotice('');
+    setBusy(true);
     try {
       let data = {};
       if (kind === 'payout') {
@@ -4276,130 +5290,413 @@ function AdminPayments() {
       );
     } catch (err) {
       setError(msg(err));
+    } finally {
+      setBusy(false);
     }
   }
+  const summary = bookings.data?.summary;
   return (
-    <div className="card p-3 p-lg-4 mb-4 shadow-sm">
-      <h2>Bookings, reconciliation & payouts</h2>
-      <p className="text-body-secondary small">
-        Refunds are processed by an operator in Razorpay during this implementation stage, then
-        reconciled here. Never mark a provider transfer as settled without evidence.
-      </p>
-      {error && <Alert>{error}</Alert>}
-      {notice && <Alert kind="success">{notice}</Alert>}
-      {bookings.error && <Alert>{bookings.error}</Alert>}
-      <div className="table-responsive">
-        <table className="table table-striped table-hover align-middle">
-          <thead>
-            <tr>
-              <th>Booking</th>
-              <th>Status</th>
-              <th>Gross / expert net</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bookings.data?.items.map((b: any) => (
-              <tr key={b._id}>
-                <td>
-                  <strong>{b.title}</strong>
-                  <small>{b._id}</small>
-                  <small>{date(b.startsAt)}</small>
-                </td>
-                <td>
-                  {b.status}
-                  <small>
-                    {b.paymentStatus}
-                    {b.dispute ? ' · dispute' : ''}
-                  </small>
-                </td>
-                <td>
-                  {formatMoney(b.grossPaise)}
-                  <small>{formatMoney(b.expertPaise)} net</small>
-                </td>
-                <td>
-                  <div className="d-flex flex-wrap align-items-center gap-2">
-                    <button
-                      className="btn btn-outline-secondary btn-sm"
-                      disabled={!b.orderId}
-                      onClick={() => run(b, 'reconcile')}
-                    >
-                      Reconcile
-                    </button>
-                    <button
-                      className="btn btn-outline-secondary btn-sm"
-                      disabled={
-                        b.status !== 'completed' || b.paymentStatus !== 'captured' || b.dispute
-                      }
-                      onClick={() => run(b, 'payout')}
-                    >
-                      Payout
-                    </button>
-                    {b.status === 'pending_confirmation' && (
-                      <button
-                        className="btn btn-link p-0"
-                        onClick={async () => {
-                          try {
-                            await post(`/bookings/${b._id}/action`, { action: 'accept' });
-                            bookings.reload();
-                          } catch (e) {
-                            setError(msg(e));
-                          }
-                        }}
-                      >
-                        Accept booking
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
+    <div className="admin-page-spacing admin-payments">
+      {summary && (
+        <section className="expert-review-metrics" aria-label="Payment summary">
+          {[
+            {
+              label: 'Total bookings',
+              value: String(summary.totalBookings),
+              hint: 'All stored bookings',
+              icon: CalendarDays,
+              tone: 'blue',
+            },
+            {
+              label: 'Recorded paid payouts',
+              value: formatMoney(summary.recordedPaidPaise),
+              hint: 'Recorded paid amounts',
+              icon: WalletCards,
+              tone: 'green',
+            },
+            {
+              label: 'Payouts to reconcile',
+              value: String(summary.payoutsToReconcile),
+              hint: 'Processing, submitted or unknown',
+              icon: Clock,
+              tone: 'orange',
+            },
+            {
+              label: 'Recorded paid count',
+              value: String(summary.recordedPaidCount),
+              hint: 'Not bank settlement certification',
+              icon: CircleCheck,
+              tone: 'purple',
+            },
+          ].map(({ label, value, hint, icon: Icon, tone }) => (
+            <div className={`expert-review-metric ${tone}`} key={label}>
+              <span className="expert-review-metric-icon">
+                <Icon size={22} />
+              </span>
+              <div>
+                <span>{label}</span>
+                <strong>{value}</strong>
+                <small>{hint}</small>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+      <form
+        className="admin-payment-filters admin-bordered-panel"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setPage(1);
+          setApplied(new URLSearchParams({ q, status, payout, from, to }).toString());
+        }}
+      >
+        <label className="admin-search-field">
+          <span className="visually-hidden">Search payments</span>
+          <Search size={16} />
+          <input
+            className="form-control"
+            placeholder="Booking ID, title, expert or customer"
+            value={q}
+            maxLength={120}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </label>
+        <label>
+          From (UTC)
+          <input
+            className="form-control"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+        </label>
+        <label>
+          To (UTC)
+          <input
+            className="form-control"
+            type="date"
+            min={from || undefined}
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
+        </label>
+        <label>
+          Booking status
+          <select
+            className="form-select"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+          >
+            {[
+              'all',
+              'held',
+              'pending_confirmation',
+              'confirmed',
+              'completed',
+              'cancelled',
+              'expired',
+            ].map((v) => (
+              <option key={v} value={v}>
+                {v.replaceAll('_', ' ')}
+              </option>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <Pager page={page} setPage={setPage} total={bookings.data?.total ?? 0} />
+          </select>
+        </label>
+        <label>
+          Payout status
+          <select
+            className="form-select"
+            value={payout}
+            onChange={(e) => setPayout(e.target.value)}
+          >
+            {['all', 'none', 'processing', 'submitted', 'paid', 'unknown', 'failed'].map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn btn-primary">
+          <SlidersHorizontal size={16} /> Filter
+        </button>
+      </form>
+      <section className="admin-surface">
+        <h2>Bookings, reconciliation &amp; payouts</h2>
+        <p className="admin-muted">
+          Refunds are processed by an operator in Razorpay, then reconciled here. Review ambiguous
+          orders and transfers before retrying.
+        </p>
+        {error && <Alert>{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
+        {bookings.loading ? (
+          <Loader />
+        ) : bookings.error ? (
+          <Alert>{bookings.error}</Alert>
+        ) : !bookings.data?.items.length ? (
+          <Empty title="No bookings match these filters" />
+        ) : (
+          <div className="table-responsive admin-data-table admin-payment-table">
+            <table className="table align-middle">
+              <thead>
+                <tr>
+                  <th>Booking</th>
+                  <th>Expert</th>
+                  <th>Customer</th>
+                  <th>Date &amp; time</th>
+                  <th>Gross / expert net</th>
+                  <th>Payout</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bookings.data.items.map((b: any) => (
+                  <tr key={b._id}>
+                    <td>
+                      <strong>{b.title}</strong>
+                      <small>{b._id}</small>
+                    </td>
+                    <td>{b.expertId?.userId?.name ?? 'Unavailable'}</td>
+                    <td>{b.customerId?.name ?? 'Unavailable'}</td>
+                    <td>{date(b.startsAt)}</td>
+                    <td>
+                      {formatMoney(b.grossPaise)}
+                      <small>{formatMoney(b.expertPaise)} net</small>
+                    </td>
+                    <td>
+                      {b.payout ? (
+                        <>
+                          <span className={`badge ${statusColor(b.payout.status)}`}>
+                            {b.payout.status}
+                          </span>
+                          <small>{formatMoney(b.payout.amountPaise)}</small>
+                        </>
+                      ) : (
+                        'Not recorded'
+                      )}
+                    </td>
+                    <td>
+                      <span className={`badge ${statusColor(b.status)}`}>
+                        {b.status.replaceAll('_', ' ')}
+                      </span>
+                      <small>
+                        {b.paymentStatus}
+                        {b.dispute ? ' / dispute' : ''}
+                      </small>
+                    </td>
+                    <td>
+                      <div className="admin-payment-actions">
+                        <button
+                          className="btn btn-outline-secondary btn-sm"
+                          disabled={busy || !b.orderId}
+                          onClick={() => run(b, 'reconcile')}
+                        >
+                          Reconcile
+                        </button>
+                        <button
+                          className="btn btn-outline-secondary btn-sm"
+                          disabled={
+                            busy ||
+                            !!b.payout ||
+                            b.status !== 'completed' ||
+                            b.paymentStatus !== 'captured' ||
+                            b.dispute
+                          }
+                          onClick={() => run(b, 'payout')}
+                        >
+                          Payout
+                        </button>
+                        {b.status === 'pending_confirmation' && (
+                          <button
+                            className="btn btn-outline-secondary btn-sm"
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusy(true);
+                              setError('');
+                              try {
+                                await post(`/bookings/${b._id}/action`, { action: 'accept' });
+                                bookings.reload();
+                              } catch (e) {
+                                setError(msg(e));
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            Accept booking
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <AdminListCount page={page} total={bookings.data?.total ?? 0} />
+        <Pager page={page} setPage={setPage} total={bookings.data?.total ?? 0} />
+      </section>
     </div>
   );
 }
 function Invitations() {
-  const [notice, setNotice] = useState(''),
-    [error, setError] = useState('');
+  const [page, setPage] = useState(1),
+    [q, setQ] = useState(''),
+    [email, setEmail] = useState(''),
+    [active, setActive] = useState(true),
+    [notice, setNotice] = useState(''),
+    [error, setError] = useState(''),
+    [busy, setBusy] = useState(false);
+  const invites = useData(`/admin/invites?page=${page}&q=${encodeURIComponent(q)}`);
+  async function save(address: string, allowed: boolean) {
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await post('/admin/invites', { email: address, active: allowed });
+      setNotice('Beta access updated. Share the link separately; no invitation email was sent.');
+      invites.reload();
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <form
-      className="card p-3 p-lg-4 mb-4 shadow-sm"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.currentTarget);
-        try {
-          await post('/admin/invites', { email: f.get('email'), active: f.get('active') === 'on' });
-          setNotice('Beta access updated. This does not send an invitation email.');
-          setError('');
-        } catch (err) {
-          setError(msg(err));
-        }
-      }}
-    >
-      <h2>Control beta access</h2>
-      <p>
-        Allow an email address to register or sign in. Share the beta link with that person
-        separately.
-      </p>
+    <section className="admin-surface admin-invitations admin-page-spacing">
+      <div className="admin-page-heading">
+        <span>
+          <Mail size={28} />
+        </span>
+        <div>
+          <h2>Control beta access</h2>
+          <p>
+            Allow specific email addresses to register or sign in. Share the beta link with each
+            person separately.
+          </p>
+        </div>
+      </div>
       {error && <Alert>{error}</Alert>}
       {notice && <Alert kind="success">{notice}</Alert>}
-      <Field label="Invited email">
-        <input className="form-control" type="email" name="email" required />
-      </Field>
-      <label className="d-flex align-items-start gap-2 form-check-label mb-3">
-        <input
-          className="form-check-input flex-shrink-0"
-          type="checkbox"
-          name="active"
-          defaultChecked
-        />{' '}
-        Allow beta access
-      </label>
-      <button className="btn btn-primary">Save access</button>
-    </form>
+      <div className="admin-invite-grid">
+        <form
+          className="admin-bordered-panel"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save(email, active);
+          }}
+        >
+          <h3>Invite a user</h3>
+          <Field label="Email address">
+            <input
+              className="form-control"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              required
+            />
+          </Field>
+          <label className="admin-check-label">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+            />
+            <span>
+              Allow beta access
+              <small>User can register or sign in using the shared beta link.</small>
+            </span>
+          </label>
+          <button className="btn btn-primary w-100" disabled={busy}>
+            <Mail size={16} /> Save access
+          </button>
+        </form>
+        <aside className="admin-info-panel">
+          <CircleHelp size={28} />
+          <div>
+            <h3>How it works</h3>
+            <ol>
+              <li>Add the email address of the person you want to invite.</li>
+              <li>Share the beta link with them separately.</li>
+              <li>They register or sign in using that email address.</li>
+              <li>Revoke access anytime if needed.</li>
+            </ol>
+          </div>
+        </aside>
+      </div>
+      <section className="admin-bordered-panel mt-3">
+        <div className="admin-table-heading">
+          <div>
+            <h3>Invited users{invites.data ? ` (${invites.data.total})` : ''}</h3>
+            <p className="admin-muted">Manage people who have been given beta access.</p>
+          </div>
+          <label className="admin-search-field">
+            <Search size={17} />
+            <input
+              className="form-control"
+              aria-label="Search invitations"
+              placeholder="Search by email..."
+              maxLength={120}
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+        </div>
+        {invites.loading ? (
+          <Loader />
+        ) : invites.error ? (
+          <Alert>{invites.error}</Alert>
+        ) : !invites.data?.items.length ? (
+          <Empty title="No invitations found" />
+        ) : (
+          <div className="table-responsive admin-data-table">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Email address</th>
+                  <th>Status</th>
+                  <th>Invited on</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invites.data.items.map((i: any, index: number) => (
+                  <tr key={i._id}>
+                    <td>{(page - 1) * 24 + index + 1}</td>
+                    <td>{i.email}</td>
+                    <td>
+                      <span className={`badge ${i.active ? 'text-bg-success' : 'text-bg-danger'}`}>
+                        {i.active ? 'Active' : 'Revoked'}
+                      </span>
+                    </td>
+                    <td>{date(i.createdAt)}</td>
+                    <td>
+                      <button
+                        className="btn btn-outline-secondary btn-sm"
+                        disabled={busy}
+                        onClick={() => void save(i.email, !i.active)}
+                        aria-label={`${i.active ? 'Revoke' : 'Restore'} access for ${i.email}`}
+                      >
+                        {i.active ? 'Revoke' : 'Restore'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <AdminListCount page={page} total={invites.data?.total ?? 0} />
+        <Pager page={page} setPage={setPage} total={invites.data?.total ?? 0} />
+      </section>
+    </section>
   );
 }
 function Guidelines() {

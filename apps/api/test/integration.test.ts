@@ -833,3 +833,141 @@ describe('expert earnings reporting', () => {
     expect((await request(app).get('/api/expert/earnings')).status).toBe(401);
   });
 });
+
+describe('admin expert filtering', () => {
+  it('filters across stored records, includes category names and global summaries without private user fields', async () => {
+    const response = await request(app)
+      .get(
+        `/api/admin/experts?status=approved&category=${f.category._id}&q=${encodeURIComponent(f.expert.headline)}&sort=oldest`,
+      )
+      .set('Cookie', 'market_session=admin');
+    expect(response.status).toBe(200);
+    expect(response.body.total).toBe(1);
+    expect(response.body.items[0].categories[0].name).toBe(f.category.name);
+    expect(response.body.items[0].userId.passwordHash).toBeUndefined();
+    expect(response.body.summary).toMatchObject({ total: 1, approved: 1, pending: 0 });
+    expect(response.body.summary.updatedThisMonth).toBe(1);
+    const pending = await request(app)
+      .get('/api/admin/experts?status=pending')
+      .set('Cookie', 'market_session=admin');
+    expect(pending.body.total).toBe(0);
+    expect(pending.body.summary.total).toBe(1);
+  });
+  it('escapes regex search, validates filters and denies customer access', async () => {
+    const literal = await request(app)
+      .get('/api/admin/experts?q=%2E%2A')
+      .set('Cookie', 'market_session=admin');
+    expect(literal.status).toBe(200);
+    expect(literal.body.total).toBe(0);
+    for (const query of ['status=invalid', 'category=invalid', 'sort=invalid'])
+      expect(
+        (
+          await request(app)
+            .get('/api/admin/experts?' + query)
+            .set('Cookie', 'market_session=admin')
+        ).status,
+      ).toBe(400);
+    expect(
+      (await request(app).get('/api/admin/experts').set('Cookie', 'market_session=customer'))
+        .status,
+    ).toBe(403);
+  });
+});
+
+describe('admin management lists', () => {
+  it('filters categories across pages and reports actual expert membership', async () => {
+    const r = await request(app)
+      .get('/api/admin/categories?status=active&q=' + encodeURIComponent(f.category.name))
+      .set('Cookie', 'market_session=admin');
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(1);
+    expect(r.body.items[0].expertCount).toBe(1);
+    expect(
+      (
+        await request(app)
+          .get('/api/admin/categories?status=invalid')
+          .set('Cookie', 'market_session=admin')
+      ).status,
+    ).toBe(400);
+  });
+  it('lists, searches and revokes invitations without sending messages', async () => {
+    const email = 'invite-test@example.invalid';
+    expect(
+      (
+        await request(app)
+          .post('/api/admin/invites')
+          .set(headers)
+          .set('Cookie', 'market_session=admin')
+          .send({ email, active: true })
+      ).status,
+    ).toBe(201);
+    let r = await request(app)
+      .get('/api/admin/invites?q=invite-test&status=active')
+      .set('Cookie', 'market_session=admin');
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(1);
+    expect(r.body.items[0].email).toBe(email);
+    await request(app)
+      .post('/api/admin/invites')
+      .set(headers)
+      .set('Cookie', 'market_session=admin')
+      .send({ email, active: false });
+    r = await request(app)
+      .get('/api/admin/invites?q=invite-test&status=revoked')
+      .set('Cookie', 'market_session=admin');
+    expect(r.body.total).toBe(1);
+    expect(
+      (await request(app).get('/api/admin/invites').set('Cookie', 'market_session=customer'))
+        .status,
+    ).toBe(403);
+  });
+  it('reports recorded payout integers separately from booking snapshots and filters by payout state', async () => {
+    const b = await createBooking();
+    await Payout.create({
+      bookingId: b._id,
+      expertId: f.expert._id,
+      amountPaise: 9012,
+      mode: 'manual',
+      status: 'paid',
+    });
+    const r = await request(app)
+      .get('/api/admin/payments?payout=paid')
+      .set('Cookie', 'market_session=admin');
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(1);
+    expect(r.body.summary).toEqual({
+      totalBookings: 1,
+      recordedPaidPaise: 9012,
+      recordedPaidCount: 1,
+      payoutsToReconcile: 0,
+    });
+    expect(r.body.items[0].grossPaise).toBe(b.grossPaise);
+    expect(r.body.items[0].payout.amountPaise).toBe(9012);
+    expect(r.body.items[0].customerId.name).toBe(f.customer.name);
+    expect(r.body.items[0].customerId.email).toBeUndefined();
+    const noPayout = await request(app)
+      .get('/api/admin/payments?payout=none')
+      .set('Cookie', 'market_session=admin');
+    expect(noPayout.body.total).toBe(0);
+  });
+  it('validates payment date/status filters and rejects unauthorized access', async () => {
+    for (const q of [
+      'from=2026-12-01&to=2026-01-01',
+      'status=invalid',
+      'payout=invalid',
+      'from=not-a-date',
+    ])
+      expect(
+        (
+          await request(app)
+            .get('/api/admin/payments?' + q)
+            .set('Cookie', 'market_session=admin')
+        ).status,
+      ).toBe(400);
+    expect(
+      (await request(app).get('/api/admin/payments').set('Cookie', 'market_session=customer'))
+        .status,
+    ).toBe(403);
+    expect((await request(app).get('/api/admin/payments')).status).toBe(401);
+  });
+});
