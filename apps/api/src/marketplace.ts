@@ -48,6 +48,7 @@ export async function addSlot(
   userId: mongoose.Types.ObjectId | string,
   serviceId: string,
   startsAt: Date,
+  slotId?: string,
 ) {
   assert(
     startsAt.getTime() > Date.now() + 3600000 && startsAt.getTime() < Date.now() + 180 * 86400000,
@@ -63,6 +64,14 @@ export async function addSlot(
       { session, returnDocument: 'after' },
     );
     assert(expert, 403, 'EXPERT_REQUIRED', 'Expert profile required');
+    if (slotId) {
+      const current = await Slot.findOne({
+        _id: slotId,
+        expertId: expert._id,
+        status: 'open',
+      }).session(session);
+      assert(current, 409, 'SLOT_UNAVAILABLE', 'Only your open slots can be edited');
+    }
     const service = await Service.findOne({
       _id: serviceId,
       expertId: expert._id,
@@ -71,15 +80,42 @@ export async function addSlot(
     assert(service, 404, 'NOT_FOUND', 'Service not found');
     const endsAt = new Date(startsAt.getTime() + service.durationMinutes * 60000);
     const overlaps = await Slot.exists({
+      ...(slotId ? { _id: { $ne: slotId } } : {}),
       expertId: expert._id,
       status: { $ne: 'closed' },
       startsAt: { $lt: endsAt },
       endsAt: { $gt: startsAt },
     }).session(session);
     assert(!overlaps, 409, 'SLOT_CONFLICT', 'This overlaps another availability slot');
+    if (slotId) {
+      const updated = await Slot.findOneAndUpdate(
+        { _id: slotId, expertId: expert._id, status: 'open' },
+        { $set: { serviceId, startsAt, endsAt } },
+        { session, returnDocument: 'after' },
+      );
+      assert(updated, 409, 'SLOT_UNAVAILABLE', 'Slot was reserved before it could be edited');
+      return updated;
+    }
     return (
       await Slot.create([{ expertId: expert._id, serviceId, startsAt, endsAt }], { session })
     )[0];
+  });
+}
+export async function closeSlot(userId: mongoose.Types.ObjectId | string, slotId: string) {
+  return mongoose.connection.transaction(async (session) => {
+    const expert = await Expert.findOneAndUpdate(
+      { userId },
+      { $inc: { scheduleVersion: 1 } },
+      { session, returnDocument: 'after' },
+    );
+    assert(expert, 403, 'EXPERT_REQUIRED', 'Expert profile required');
+    const slot = await Slot.findOneAndUpdate(
+      { _id: slotId, expertId: expert._id, status: 'open' },
+      { $set: { status: 'closed' } },
+      { session, returnDocument: 'after' },
+    );
+    assert(slot, 409, 'SLOT_UNAVAILABLE', 'Only your open slots can be closed');
+    return slot;
   });
 }
 export async function reserve(

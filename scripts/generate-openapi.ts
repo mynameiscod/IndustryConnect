@@ -174,6 +174,94 @@ const schemas: Record<string, any> = {
     ]),
   },
 };
+const earningsMoney = { type: 'integer', minimum: 0 };
+schemas.ExpertEarnings = {
+  type: 'object',
+  required: [
+    'totals',
+    'summary',
+    'monthly',
+    'payouts',
+    'payoutTotal',
+    'payoutPage',
+    'payoutLimit',
+    'timezone',
+    'currentMonth',
+    'asOf',
+    'payoutInfo',
+  ],
+  properties: {
+    totals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['_id', 'grossPaise', 'netPaise', 'count'],
+        properties: {
+          _id: { type: 'string' },
+          grossPaise: earningsMoney,
+          netPaise: earningsMoney,
+          count: earningsMoney,
+        },
+      },
+    },
+    summary: {
+      type: 'object',
+      required: ['totalEarningsPaise', 'completedSessions', 'pendingPayoutPaise', 'thisMonthPaise'],
+      properties: {
+        totalEarningsPaise: earningsMoney,
+        completedSessions: earningsMoney,
+        pendingPayoutPaise: earningsMoney,
+        thisMonthPaise: earningsMoney,
+      },
+    },
+    monthly: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['month', 'netPaise', 'sessions'],
+        properties: {
+          month: { type: 'string', description: 'YYYY-MM in the report timezone' },
+          netPaise: earningsMoney,
+          sessions: earningsMoney,
+        },
+      },
+    },
+    payouts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['_id', 'bookingId', 'amountPaise', 'mode', 'status', 'createdAt'],
+        properties: {
+          _id: { type: 'string' },
+          bookingId: { type: 'string' },
+          amountPaise: earningsMoney,
+          mode: { type: 'string' },
+          status: { enum: ['paid', 'processing', 'submitted', 'unknown', 'failed'] },
+          providerId: { type: 'string' },
+          reference: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+    payoutTotal: earningsMoney,
+    payoutPage: { type: 'integer', minimum: 1 },
+    payoutLimit: { type: 'integer', minimum: 1, maximum: 100 },
+    timezone: { type: 'string' },
+    currentMonth: { type: 'string' },
+    asOf: { type: 'string', format: 'date-time' },
+    payoutInfo: {
+      type: 'object',
+      required: ['mode', 'delayHours', 'paymentMode', 'checkoutEnabled'],
+      properties: {
+        mode: { type: 'string' },
+        delayHours: earningsMoney,
+        paymentMode: { enum: ['disabled', 'test', 'live'] },
+        checkoutEnabled: { type: 'boolean' },
+      },
+    },
+  },
+};
+
 const paths: Record<string, any> = {};
 function add(
   method: string,
@@ -329,7 +417,13 @@ add('get', '/expert/profile', 'Own onboarding profile or null', 'user');
 add('put', '/expert/profile', 'Submit profile for verification', 'user', 'ExpertInput');
 add('get', '/expert/services', 'Own services (first 100)', 'expert', undefined, 'Collection');
 add('post', '/expert/services', 'Create a service', 'expert', 'ServiceInput', 'Object', 201);
-add('put', '/expert/services/{id}', 'Edit or archive a service', 'expert', 'ServiceInput');
+add(
+  'put',
+  '/expert/services/{id}',
+  'Replace or archive a service; omit confirmationPolicy to inherit the profile preference',
+  'expert',
+  'ServiceInput',
+);
 add(
   'get',
   '/expert/slots',
@@ -351,6 +445,13 @@ add(
   201,
 );
 add('delete', '/expert/slots/{id}', 'Close an unreserved slot', 'expert');
+add(
+  'put',
+  '/expert/slots/{id}',
+  'Edit an owned open dated slot atomically; reserved slots cannot be changed',
+  'expert',
+  'SlotInput',
+);
 add(
   'post',
   '/bookings',
@@ -409,7 +510,25 @@ add(
   'Object',
   201,
 );
-add('get', '/expert/earnings', 'Own captured earnings and payouts', 'expert');
+add(
+  'get',
+  '/expert/earnings',
+  'Own session earnings and paginated payout records',
+  'expert',
+  undefined,
+  'ExpertEarnings',
+  200,
+  'Completed/captured/undisputed session net; grouped by session end in the requested timezone. Pending means no paid payout record, not immediate eligibility or bank settlement.',
+  {
+    ...pages,
+    months: { type: 'integer', enum: [3, 6, 12], default: 6 },
+    timezone: { type: 'string', default: 'Asia/Kolkata' },
+    status: {
+      enum: ['all', 'paid', 'processing', 'submitted', 'unknown', 'failed'],
+      default: 'all',
+    },
+  },
+);
 add(
   'post',
   '/webhooks/razorpay',

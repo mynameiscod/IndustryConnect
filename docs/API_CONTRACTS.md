@@ -37,3 +37,21 @@ Email registration has no role parameter. Verification and password-reset codes 
 ## Versioning and current limitations
 
 This contract is for internal beta v0.1, not a public partner API. Output object schemas are intentionally broad for dashboard aggregate views; identity, money, booking states and request bodies are explicit. Before public API commitments, complete exact response schemas, generated clients and backward-compatibility checks. See LAUNCH_READINESS.md for executed versus planned validation.
+
+## Service replacement and confirmation inheritance
+
+`PUT /expert/services/{id}` replaces the service inputs owned by the current expert. Omitting the optional `confirmationPolicy` clears any previous service override, so subsequent reservations inherit the expert profile preference (subject to admin policy). Explicit `auto` or `manual` sets a service override. This does not recompute existing bookings: their confirmation, price and commission snapshots remain unchanged. Set `active=false` to archive or `active=true` to enable publication; public discovery still requires an approved expert and active category. Future open/reserved slots must be closed before changing service duration.
+
+## Dated availability editing
+
+`POST /expert/slots` publishes a dated slot. `PUT /expert/slots/{id}` accepts the same `SlotInput` (`serviceId`, ISO `startsAt`) to update an owned open slot. The server derives `endsAt` from the active owned service duration and enforces 15-minute boundaries, a start more than one hour and less than 180 days ahead, and non-overlap across the expert's services. Creation/edit/removal serialize schedule mutations in Mongo transactions. Edits retain the slot ID; reservation races either observe the committed schedule or prevent the edit. Existing booking date, price and policy snapshots are not modified.
+
+`DELETE /expert/slots/{id}` closes an owned open slot transactionally; it does not erase history. Held/booked slots cannot be edited or closed and return 409 `SLOT_UNAVAILABLE`. `GET /expert/slots?page=1&limit=6` returns upcoming nonclosed slots as `{items,total,page}`, ordered by start time. Date/time presentation uses the viewer's device timezone; storage and request timestamps are UTC/ISO. Recurrence remains outside the beta scope. OpenAPI now documents 47 paths / 54 operations.
+
+## Expert earnings reports
+
+`GET /expert/earnings` is owned and read-only. Query parameters: `months=3|6|12` (default 6), `timezone=<IANA name>` (default Asia/Kolkata), `status=all|paid|processing|submitted|unknown|failed`, and standard `page`/`limit` pagination for payout records. Invalid timezones and report periods return 400. A Mongo snapshot transaction reads bookings, payouts and marketplace payout settings without provider requests or financial mutations.
+
+The response retains legacy captured-booking `totals` and adds an explicit `ExpertEarnings` OpenAPI schema. `summary.totalEarningsPaise` and `completedSessions` include only completed, captured, undisputed bookings; `pendingPayoutPaise` is that completed net without a payout recorded as paid. It includes delay/processing/review states and is not an immediately withdrawable balance. `thisMonthPaise` and zero-filled `monthly` rows use session end month in the requested timezone, with the latest known refund/dispute state. Amounts use immutable expert-net paise snapshots, not current service prices or commission settings.
+
+`payouts`, `payoutTotal`, `payoutPage` and `payoutLimit` describe the selected owned payout page; the filter does not change earnings totals. Returned payout fields are limited to record/booking IDs, amount, mode/status, external/provider reference and creation date; internal notes are excluded. `asOf`, `timezone`, `currentMonth` and `payoutInfo` explain report timing and payout policy/readiness. The API supplies no bank details, tax invoice, bank-settlement certification or promise of automatic transfer. This report does not close the operational settlement/refund-after-payout blockers.

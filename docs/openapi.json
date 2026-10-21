@@ -2970,7 +2970,7 @@
     },
     "/expert/services/{id}": {
       "put": {
-        "summary": "Edit or archive a service",
+        "summary": "Replace or archive a service; omit confirmationPolicy to inherit the profile preference",
         "operationId": "put__expert_services_id_",
         "tags": [
           "expert"
@@ -3383,6 +3383,138 @@
             "$ref": "#/components/parameters/RequestHeader"
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / invite required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, uniqueness or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider or release gate unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Edit an owned open dated slot atomically; reserved slots cannot be changed",
+        "operationId": "put__expert_slots_id_",
+        "tags": [
+          "expert"
+        ],
+        "description": "Requires expert permission and resource ownership where applicable. ",
+        "security": [
+          {
+            "Session": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{24}$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/RequestHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotInput"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Success",
@@ -4281,25 +4413,81 @@
     },
     "/expert/earnings": {
       "get": {
-        "summary": "Own captured earnings and payouts",
+        "summary": "Own session earnings and paginated payout records",
         "operationId": "get__expert_earnings",
         "tags": [
           "expert"
         ],
-        "description": "Requires expert permission and resource ownership where applicable. ",
+        "description": "Requires expert permission and resource ownership where applicable. Completed/captured/undisputed session net; grouped by session end in the requested timezone. Pending means no paid payout record, not immediate eligibility or bank settlement.",
         "security": [
           {
             "Session": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 24
+            }
+          },
+          {
+            "in": "query",
+            "name": "months",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                3,
+                6,
+                12
+              ],
+              "default": 6
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "schema": {
+              "type": "string",
+              "default": "Asia/Kolkata"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "enum": [
+                "all",
+                "paid",
+                "processing",
+                "submitted",
+                "unknown",
+                "failed"
+              ],
+              "default": "all"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Object"
+                  "$ref": "#/components/schemas/ExpertEarnings"
                 }
               }
             }
@@ -7324,6 +7512,204 @@
           "meetingUrl": {
             "type": "string",
             "format": "uri"
+          }
+        }
+      },
+      "ExpertEarnings": {
+        "type": "object",
+        "required": [
+          "totals",
+          "summary",
+          "monthly",
+          "payouts",
+          "payoutTotal",
+          "payoutPage",
+          "payoutLimit",
+          "timezone",
+          "currentMonth",
+          "asOf",
+          "payoutInfo"
+        ],
+        "properties": {
+          "totals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "_id",
+                "grossPaise",
+                "netPaise",
+                "count"
+              ],
+              "properties": {
+                "_id": {
+                  "type": "string"
+                },
+                "grossPaise": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "netPaise": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "totalEarningsPaise",
+              "completedSessions",
+              "pendingPayoutPaise",
+              "thisMonthPaise"
+            ],
+            "properties": {
+              "totalEarningsPaise": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "completedSessions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pendingPayoutPaise": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "thisMonthPaise": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "monthly": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "month",
+                "netPaise",
+                "sessions"
+              ],
+              "properties": {
+                "month": {
+                  "type": "string",
+                  "description": "YYYY-MM in the report timezone"
+                },
+                "netPaise": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sessions": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "payouts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "_id",
+                "bookingId",
+                "amountPaise",
+                "mode",
+                "status",
+                "createdAt"
+              ],
+              "properties": {
+                "_id": {
+                  "type": "string"
+                },
+                "bookingId": {
+                  "type": "string"
+                },
+                "amountPaise": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "mode": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "paid",
+                    "processing",
+                    "submitted",
+                    "unknown",
+                    "failed"
+                  ]
+                },
+                "providerId": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "payoutTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payoutPage": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "payoutLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "currentMonth": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "payoutInfo": {
+            "type": "object",
+            "required": [
+              "mode",
+              "delayHours",
+              "paymentMode",
+              "checkoutEnabled"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string"
+              },
+              "delayHours": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "paymentMode": {
+                "enum": [
+                  "disabled",
+                  "test",
+                  "live"
+                ]
+              },
+              "checkoutEnabled": {
+                "type": "boolean"
+              }
+            }
           }
         }
       }

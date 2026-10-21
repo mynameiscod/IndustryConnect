@@ -14,6 +14,7 @@ import {
   Invite,
   Job,
   Ledger,
+  Payout,
   Review,
   Service,
   Session,
@@ -26,6 +27,7 @@ import {
 } from '../src/models.js';
 import {
   addSlot,
+  closeSlot,
   applyCapture,
   reserve,
   actOnBooking,
@@ -153,6 +155,137 @@ beforeEach(async () => {
   f = { customer, other, admin, expertUser, expert, category, service, slot };
 });
 describe('database integrity and authorization', () => {
+  it('edits an owned open slot and derives its end from the service duration', async () => {
+    const startsAt = new Date(+f.slot.startsAt + 900000);
+    const response = await request(app)
+      .put(`/api/expert/slots/${f.slot._id}`)
+      .set(headers)
+      .set('Cookie', 'market_session=expert')
+      .send({ serviceId: String(f.service._id), startsAt: startsAt.toISOString() });
+    expect(response.status).toBe(200);
+    expect(response.body._id).toBe(String(f.slot._id));
+    expect(response.body.startsAt).toBe(startsAt.toISOString());
+    expect(+new Date(response.body.endsAt) - +startsAt).toBe(f.service.durationMinutes * 60000);
+  });
+  it('rolls back an overlapping slot edit without moving the original', async () => {
+    const target = new Date(+f.slot.startsAt + 7200000);
+    await addSlot(f.expertUser._id, String(f.service._id), target);
+    await expect(
+      addSlot(f.expertUser._id, String(f.service._id), target, String(f.slot._id)),
+    ).rejects.toMatchObject({ code: 'SLOT_CONFLICT' });
+    expect(+(await Slot.findById(f.slot._id))!.startsAt).toBe(+f.slot.startsAt);
+  });
+  it.each(['held', 'booked'])('protects %s slots from edits and removal', async (state) => {
+    const b = await createBooking();
+    if (state === 'booked') await applyCapture(paid(b), 'availability-capture');
+    await expect(
+      addSlot(
+        f.expertUser._id,
+        String(f.service._id),
+        new Date(+f.slot.startsAt + 86400000),
+        String(f.slot._id),
+      ),
+    ).rejects.toMatchObject({ code: 'SLOT_UNAVAILABLE' });
+    await expect(closeSlot(f.expertUser._id, String(f.slot._id))).rejects.toMatchObject({
+      code: 'SLOT_UNAVAILABLE',
+    });
+    expect((await Slot.findById(f.slot._id))?.status).toBe(state);
+    expect(+(await Booking.findById(b._id))!.startsAt).toBe(+b.startsAt);
+  });
+  it('prevents another expert from editing or closing a slot', async () => {
+    await Expert.create({
+      userId: f.other._id,
+      slug: 'other-expert',
+      bio: 'Another professional profile for ownership checks.',
+      headline: 'Another expert profile',
+      categories: [f.category._id],
+    });
+    await expect(
+      addSlot(
+        f.other._id,
+        String(f.service._id),
+        new Date(+f.slot.startsAt + 86400000),
+        String(f.slot._id),
+      ),
+    ).rejects.toMatchObject({ code: 'SLOT_UNAVAILABLE' });
+    await expect(closeSlot(f.other._id, String(f.slot._id))).rejects.toMatchObject({
+      code: 'SLOT_UNAVAILABLE',
+    });
+    expect((await Slot.findById(f.slot._id))?.status).toBe('open');
+  });
+  it('serializes a competing slot creation and edit without overlaps', async () => {
+    const target = new Date(+f.slot.startsAt + 7200000);
+    const results = await Promise.allSettled([
+      addSlot(f.expertUser._id, String(f.service._id), target),
+      addSlot(f.expertUser._id, String(f.service._id), target, String(f.slot._id)),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(
+      await Slot.countDocuments({ expertId: f.expert._id, startsAt: target, status: 'open' }),
+    ).toBe(1);
+  });
+  it('keeps booking snapshots consistent when reservation races a slot edit', async () => {
+    const results = await Promise.allSettled([
+      addSlot(
+        f.expertUser._id,
+        String(f.service._id),
+        new Date(+f.slot.startsAt + 7200000),
+        String(f.slot._id),
+      ),
+      reserve(f.customer._id, String(f.slot._id), 'availability-edit-race'),
+    ]);
+    expect(results[1].status).toBe('fulfilled');
+    const slot = await Slot.findById(f.slot._id),
+      booking = await Booking.findOne({ slotId: f.slot._id });
+    expect(slot?.status).toBe('held');
+    expect(+slot!.startsAt).toBe(+booking!.startsAt);
+    expect(+slot!.endsAt).toBe(+booking!.endsAt);
+  });
+  it('closes slots transactionally and paginates only upcoming nonclosed slots', async () => {
+    await closeSlot(f.expertUser._id, String(f.slot._id));
+    const next = await addSlot(
+      f.expertUser._id,
+      String(f.service._id),
+      new Date(+f.slot.startsAt + 7200000),
+    );
+    const response = await request(app)
+      .get('/api/expert/slots?limit=1&page=1')
+      .set('Cookie', 'market_session=expert');
+    expect(response.status).toBe(200);
+    expect(response.body.total).toBe(1);
+    expect(response.body.page).toBe(1);
+    expect(response.body.items.map((slot: any) => slot._id)).toEqual([String(next._id)]);
+    expect((await Slot.findById(f.slot._id))?.status).toBe('closed');
+  });
+  it('clears a service confirmation override without changing existing booking snapshots', async () => {
+    await Service.updateOne({ _id: f.service._id }, { $set: { confirmationPolicy: 'manual' } });
+    const existing = await reserve(f.customer._id, String(f.slot._id), 'service-policy-existing');
+    expect(existing.confirmationPolicy).toBe('manual');
+    const response = await request(app)
+      .put(`/api/expert/services/${f.service._id}`)
+      .set(headers)
+      .set('Cookie', 'market_session=expert')
+      .send({
+        categoryId: String(f.category._id),
+        title: f.service.title,
+        description: f.service.description,
+        durationMinutes: f.service.durationMinutes,
+        pricePaise: f.service.pricePaise,
+        mode: 'online',
+        location: '',
+        active: true,
+      });
+    expect(response.status).toBe(200);
+    expect((await Service.findById(f.service._id))?.confirmationPolicy).toBeUndefined();
+    expect((await Booking.findById(existing._id))?.confirmationPolicy).toBe('manual');
+    const nextSlot = await addSlot(
+      f.expertUser._id,
+      String(f.service._id),
+      new Date(+f.slot.startsAt + 86400000),
+    );
+    const next = await reserve(f.other._id, String(nextSlot._id), 'service-policy-inherited');
+    expect(next.confirmationPolicy).toBe('auto');
+  });
   it('allows exactly one of 50 concurrent reservations', async () => {
     const attempts = await Promise.allSettled(
       Array.from({ length: 50 }, (_, i) =>
@@ -526,5 +659,177 @@ describe('release-sensitive follow-up cases', () => {
       ),
     ).rejects.toMatchObject({ code: 'ROUTE_UNAVAILABLE' });
     expect(p.transfer).not.toHaveBeenCalled();
+  });
+});
+
+describe('expert earnings reporting', () => {
+  async function earning(overrides: Record<string, unknown> = {}) {
+    return Booking.create({
+      customerId: f.customer._id,
+      expertId: f.expert._id,
+      serviceId: f.service._id,
+      slotId: new mongoose.Types.ObjectId(),
+      startsAt: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 0)),
+      endsAt: new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 1, 0)),
+      title: 'A completed session',
+      mode: 'online',
+      grossPaise: 10000,
+      commissionBps: 1000,
+      commissionPaise: 1000,
+      expertPaise: 9000,
+      confirmationPolicy: 'auto',
+      status: 'completed',
+      paymentStatus: 'captured',
+      holdUntil: new Date(),
+      idempotencyKey: new mongoose.Types.ObjectId().toString(),
+      dispute: false,
+      ...overrides,
+    });
+  }
+  const report = (query = '') =>
+    request(app)
+      .get(`/api/expert/earnings?timezone=UTC${query}`)
+      .set('Cookie', 'market_session=expert');
+  it('reports completed captured undisputed net and subtracts only recorded-paid payouts from pending', async () => {
+    const paidBooking = await earning();
+    await earning({ grossPaise: 5000, commissionPaise: 500, expertPaise: 4500 });
+    await earning({ dispute: true });
+    await earning({ paymentStatus: 'refunded' });
+    await earning({ status: 'confirmed' });
+    await earning({ expertId: new mongoose.Types.ObjectId() });
+    await Payout.create({
+      bookingId: paidBooking._id,
+      expertId: f.expert._id,
+      amountPaise: 9000,
+      mode: 'manual',
+      status: 'paid',
+      reference: 'external-test-reference',
+      note: 'private-operator-note',
+    });
+    const result = await report('&months=6');
+    expect(result.status).toBe(200);
+    expect(result.body.summary).toEqual({
+      totalEarningsPaise: 13500,
+      completedSessions: 2,
+      pendingPayoutPaise: 4500,
+      thisMonthPaise: 13500,
+    });
+    expect(result.body.monthly).toHaveLength(6);
+    expect(
+      result.body.monthly.reduce((sum: number, m: { netPaise: number }) => sum + m.netPaise, 0),
+    ).toBe(13500);
+    expect(result.body.payoutInfo).toMatchObject({
+      mode: 'manual',
+      paymentMode: 'disabled',
+      checkoutEnabled: false,
+    });
+    expect(JSON.stringify(result.body)).not.toContain('private-operator-note');
+  });
+  it('groups earnings by session-end month in the requested timezone', async () => {
+    const boundary = new Date(
+      Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 30),
+    );
+    await earning({ endsAt: boundary });
+    const utc = await report('&months=3');
+    const pacific = await request(app)
+      .get('/api/expert/earnings?timezone=America%2FLos_Angeles&months=3')
+      .set('Cookie', 'market_session=expert');
+    expect(pacific.status).toBe(200);
+    const key = (date: Date, timezone: string) => {
+      const parts = new Intl.DateTimeFormat('en', {
+        year: 'numeric',
+        month: '2-digit',
+        timeZone: timezone,
+      }).formatToParts(date);
+      return `${parts.find((p) => p.type === 'year')!.value}-${parts.find((p) => p.type === 'month')!.value}`;
+    };
+    expect(
+      utc.body.monthly.find((m: { month: string }) => m.month === key(boundary, 'UTC')).netPaise,
+    ).toBe(9000);
+    expect(
+      pacific.body.monthly.find(
+        (m: { month: string }) => m.month === key(boundary, 'America/Los_Angeles'),
+      ).netPaise,
+    ).toBe(9000);
+    expect(key(boundary, 'UTC')).not.toBe(key(boundary, 'America/Los_Angeles'));
+  });
+  it('filters and paginates only the expert’s payout records without changing totals', async () => {
+    for (const status of ['paid', 'unknown', 'paid']) {
+      const b = await earning();
+      await Payout.create({
+        expertId: f.expert._id,
+        bookingId: b._id,
+        amountPaise: 9000,
+        mode: 'manual',
+        status,
+      });
+    }
+    const foreign = await earning({ expertId: new mongoose.Types.ObjectId() });
+    await Payout.create({
+      expertId: foreign.expertId,
+      bookingId: foreign._id,
+      amountPaise: 9000,
+      mode: 'manual',
+      status: 'paid',
+    });
+    const result = await report('&status=paid&limit=1&page=2');
+    expect(result.status).toBe(200);
+    expect(result.body.payoutTotal).toBe(2);
+    expect(result.body.payoutPage).toBe(2);
+    expect(result.body.payouts).toHaveLength(1);
+    expect(result.body.payouts[0].status).toBe('paid');
+    expect(result.body.summary).toMatchObject({
+      totalEarningsPaise: 27000,
+      pendingPayoutPaise: 9000,
+      completedSessions: 3,
+    });
+  });
+  it('returns zero reports without creating financial records', async () => {
+    const result = await report('&months=12');
+    expect(result.status).toBe(200);
+    expect(result.body.summary).toEqual({
+      totalEarningsPaise: 0,
+      completedSessions: 0,
+      pendingPayoutPaise: 0,
+      thisMonthPaise: 0,
+    });
+    expect(result.body.monthly).toHaveLength(12);
+    expect(
+      result.body.monthly.every(
+        (m: { netPaise: number; sessions: number }) => m.netPaise === 0 && m.sessions === 0,
+      ),
+    ).toBe(true);
+    expect(await Booking.countDocuments()).toBe(0);
+    expect(await Ledger.countDocuments()).toBe(0);
+    expect(await Payout.countDocuments()).toBe(0);
+    expect(p.transfer).not.toHaveBeenCalled();
+  });
+  it('preserves completed-session counts for zero-net sessions', async () => {
+    await earning({ commissionBps: 10000, commissionPaise: 10000, expertPaise: 0 });
+    const result = await report();
+    expect(result.status).toBe(200);
+    expect(result.body.summary).toMatchObject({
+      totalEarningsPaise: 0,
+      completedSessions: 1,
+      pendingPayoutPaise: 0,
+    });
+    expect(
+      result.body.monthly.reduce((count: number, m: { sessions: number }) => count + m.sessions, 0),
+    ).toBe(1);
+  });
+  it('rejects invalid report parameters and access without an expert profile', async () => {
+    expect((await report('&months=7')).status).toBe(400);
+    expect(
+      (
+        await request(app)
+          .get('/api/expert/earnings?timezone=invalid-zone')
+          .set('Cookie', 'market_session=expert')
+      ).status,
+    ).toBe(400);
+    expect(
+      (await request(app).get('/api/expert/earnings').set('Cookie', 'market_session=customer'))
+        .status,
+    ).toBe(403);
+    expect((await request(app).get('/api/expert/earnings')).status).toBe(401);
   });
 });

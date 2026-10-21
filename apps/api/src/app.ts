@@ -21,6 +21,7 @@ import {
   slotInput,
 } from '@market/contracts';
 import { paymentBlockers, type Config } from './config.js';
+import { expertEarnings } from './earnings.js';
 import { AppError, assert, createProviders, type Providers, verifyHmac } from './providers.js';
 import {
   Audit,
@@ -56,6 +57,7 @@ import {
   actOnBooking,
   addReview,
   addSlot,
+  closeSlot,
   applyCapture,
   audit,
   createOrder,
@@ -586,6 +588,7 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
       'Close future slots before changing duration',
     );
     Object.assign(current, data);
+    current.confirmationPolicy = data.confirmationPolicy;
     await current.save();
     res.json(current);
   });
@@ -596,23 +599,29 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
       .json(await addSlot(res.locals.user._id, data.serviceId, new Date(data.startsAt)));
   });
   app.delete('/api/expert/slots/:id', requireUser, async (req, res) => {
-    const e = await expertFor(res.locals.user._id);
-    const slot = await Slot.findOneAndUpdate(
-      { _id: id.parse(req.params.id), expertId: e._id, status: 'open' },
-      { $set: { status: 'closed' } },
-      { returnDocument: 'after' },
+    res.json(await closeSlot(res.locals.user._id, id.parse(req.params.id)));
+  });
+  app.put('/api/expert/slots/:id', requireUser, async (req, res) => {
+    const data = slotInput.parse(req.body);
+    res.json(
+      await addSlot(res.locals.user._id, data.serviceId, new Date(data.startsAt), id.parse(req.params.id)),
     );
-    assert(slot, 409, 'SLOT_UNAVAILABLE', 'Only open slots can be closed');
-    res.json(slot);
   });
   app.get('/api/expert/slots', requireUser, async (req, res) => {
     const e = await expertFor(res.locals.user._id);
     const pg = pageMeta(req.query);
+    const filter = {
+      expertId: e._id,
+      status: { $ne: 'closed' as const },
+      endsAt: { $gt: new Date() },
+    };
     res.json({
-      items: await Slot.find({ expertId: e._id, endsAt: { $gt: new Date() } })
+      items: await Slot.find(filter)
         .sort({ startsAt: 1 })
         .skip(pg.skip)
         .limit(pg.limit),
+      total: await Slot.countDocuments(filter),
+      page: pg.page,
     });
   });
 
@@ -694,23 +703,11 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
         await addReview(res.locals.user._id, id.parse(req.params.id), reviewInput.parse(req.body)),
       ),
   );
-  app.get('/api/expert/earnings', requireUser, async (_req, res) => {
-    const e = await expertFor(res.locals.user._id);
-    const totals = await Booking.aggregate([
-      { $match: { expertId: e._id, paymentStatus: 'captured' } },
-      {
-        $group: {
-          _id: '$status',
-          grossPaise: { $sum: '$grossPaise' },
-          netPaise: { $sum: '$expertPaise' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-    res.json({
-      totals,
-      payouts: await Payout.find({ expertId: e._id }).sort({ createdAt: -1 }).limit(100),
-    });
+  app.get('/api/expert/earnings', requireUser, async (req, res) => {
+    const expert = await expertFor(res.locals.user._id);
+    const query = z.object({months:z.coerce.number().int().refine(value=>[3,6,12].includes(value)).default(6),timezone:z.string().max(100).default('Asia/Kolkata'),status:z.enum(['all','paid','processing','submitted','unknown','failed']).default('all')}).parse(req.query);
+    const pagination = pageMeta(req.query);
+    res.json(await expertEarnings(c,expert._id,{...query,page:pagination.page,limit:pagination.limit}));
   });
 
   app.use('/api/admin', requireUser, requireAdmin);
