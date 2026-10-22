@@ -11,14 +11,26 @@ vi.mock('@aws-sdk/client-sesv2', () => ({
   SendEmailCommand: class {
     constructor(public input: unknown) {}
   },
+  GetMessageInsightsCommand: class {
+    constructor(public input: unknown) {}
+  },
 }));
 import { createProviders } from '../src/providers.js';
 import { readConfig } from '../src/config.js';
 import { sendWhatsAppTest } from '../src/whatsapp.js';
+import { insightStatus } from '../src/email-delivery.js';
 process.env.AUTH_PEPPER ??= 'delivery-test-pepper-with-at-least-32-characters';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+it('never infers delivery from a send event or an open event', () => {
+  const events = (types: string[]) => types.map((type) => ({ type, at: new Date() }));
+  expect(insightStatus(events(['SEND']))).toBe('accepted');
+  expect(insightStatus(events(['OPEN']))).toBe('accepted');
+  expect(insightStatus(events(['DELIVERY_DELAY', 'DELIVERY']))).toBe('delivered');
+  expect(insightStatus(events(['DELIVERY', 'COMPLAINT']))).toBe('complained');
+  expect(insightStatus(events(['DELIVERY', 'BOUNCE']))).toBe('bounced');
 });
 it('sends SES with selected region, sender and configuration set, without retries', async () => {
   ses.send.mockResolvedValue({ MessageId: 'accepted-id' });

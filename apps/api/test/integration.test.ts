@@ -39,6 +39,10 @@ import {
 } from '../src/marketplace.js';
 import type { Providers, ProviderPayment } from '../src/providers.js';
 import { processOneJob } from '../src/worker.js';
+import { sendTrackedEmail, checkEmailDelivery } from '../src/email-delivery.js';
+import { EmailDelivery } from '../src/models.js';
+import { SESv2Client } from '@aws-sdk/client-sesv2';
+import { AppError } from '../src/providers.js';
 let repl: MongoMemoryReplSet, app: ReturnType<typeof createApp>, f: any, p: Providers;
 process.env.AUTH_PEPPER = 'integration-pepper-at-least-32-characters-long';
 if (process.platform === 'linux') process.env.MONGOMS_DISTRO ??= 'ubuntu-22.04';
@@ -1136,6 +1140,95 @@ describe('admin management lists', () => {
         .status,
     ).toBe(403);
     expect((await request(app).get('/api/admin/payments')).status).toBe(401);
+  });
+});
+
+describe('email delivery reports', () => {
+  it('records accepted messages without bodies or codes and shows only provider-confirmed delivery', async () => {
+    const sender = {
+      ...p,
+      sendEmail: vi.fn(async () => ({ provider: 'ses' as const, messageId: 'ses-report-test' })),
+    };
+    const receipt = await sendTrackedEmail(
+      { ...c, EMAIL_PROVIDER: 'ses', SES_REGION: 'ap-south-1' },
+      sender,
+      'recipient@example.invalid',
+      'Verification',
+      'Private code 123456',
+    );
+    const row = await EmailDelivery.findById(receipt!.deliveryId);
+    expect(row?.status).toBe('accepted');
+    expect(JSON.stringify(row)).not.toContain('123456');
+    expect(row?.recipient).toBe('re***@example.invalid');
+    const spy = vi.spyOn(SESv2Client.prototype, 'send').mockResolvedValue({
+      MessageId: 'ses-report-test',
+      Insights: [
+        {
+          Events: [
+            { Type: 'SEND', Timestamp: new Date() },
+            { Type: 'DELIVERY', Timestamp: new Date() },
+          ],
+        },
+      ],
+    } as never);
+    try {
+      const report = await checkEmailDelivery(c, receipt!.deliveryId!);
+      expect(report.status).toBe('delivered');
+      expect(report.events).toHaveLength(2);
+      expect(sender.sendEmail).toHaveBeenCalledTimes(1);
+      await expect(checkEmailDelivery(c, receipt!.deliveryId!)).rejects.toThrow(/Wait a moment/);
+      const clock = vi.spyOn(Date, 'now');
+      const baseline = new Date().getTime();
+      try {
+        clock.mockReturnValue(baseline + 3000);
+        spy.mockResolvedValueOnce({
+          MessageId: 'ses-report-test',
+          Insights: [{ Events: [{ Type: 'SEND', Timestamp: new Date() }] }],
+        } as never);
+        expect((await checkEmailDelivery(c, receipt!.deliveryId!)).status).toBe('delivered');
+        clock.mockReturnValue(baseline + 5000);
+        spy.mockRejectedValueOnce(
+          Object.assign(new Error('private AWS detail'), { name: 'AccessDeniedException' }),
+        );
+        const unavailable = await checkEmailDelivery(c, receipt!.deliveryId!);
+        expect(unavailable.status).toBe('delivered');
+        expect(unavailable.reportNote).toContain('ses:GetMessageInsights');
+        expect(JSON.stringify(unavailable)).not.toContain('private AWS detail');
+      } finally {
+        clock.mockRestore();
+      }
+    } finally {
+      spy.mockRestore();
+    }
+    expect(
+      (
+        await request(app)
+          .get('/api/admin/email-deliveries')
+          .set('Cookie', 'market_session=customer')
+      ).status,
+    ).toBe(403);
+    const response = await request(app)
+      .get('/api/admin/email-deliveries')
+      .set('Cookie', 'market_session=admin');
+    expect(response.body.items[0].status).toBe('delivered');
+    expect(response.body.total).toBe(1);
+  });
+  it('distinguishes known failures from unknown send outcomes and does not retry', async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new AppError(502, 'EMAIL_REJECTED', 'Rejected'))
+      .mockRejectedValueOnce(new Error('Timeout with private token'));
+    const sender = { ...p, sendEmail: send };
+    await expect(
+      sendTrackedEmail(c, sender, 'recipient@example.invalid', 'Test', 'private body'),
+    ).rejects.toThrow('Rejected');
+    await expect(
+      sendTrackedEmail(c, sender, 'recipient@example.invalid', 'Test', 'private body'),
+    ).rejects.toThrow('Timeout');
+    const reports = await EmailDelivery.find().sort({ createdAt: 1 });
+    expect(reports.map((r) => r.status)).toEqual(['failed', 'unknown']);
+    expect(JSON.stringify(reports)).not.toContain('private');
+    expect(send).toHaveBeenCalledTimes(2);
   });
 });
 

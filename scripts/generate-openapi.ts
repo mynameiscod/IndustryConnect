@@ -696,9 +696,30 @@ add(
   'IntegrationTest',
   'Object',
   200,
-  'Email or WhatsApp only. Current admin password and recipient consent required; five attempts per client per fifteen minutes. Email recipient must be an email address; WhatsApp recipient must be E.164. Sends once with no automatic retry. WhatsApp uses the approved no-variable template. Success means provider acceptance, not confirmed delivery. No payment test or payment activation.',
+  'Email or WhatsApp only. Current admin password and recipient consent required; five attempts per client per fifteen minutes. Email recipient must be an email address; WhatsApp recipient must be E.164. Sends once with no automatic retry. Production email sends create masked delivery reports and return deliveryId with accepted:true and message. WhatsApp uses the approved no-variable template. Success means provider acceptance, not confirmed delivery. No payment test or payment activation.',
 );
 add('get', '/admin/settings', 'Read policy defaults', 'admin');
+add(
+  'get',
+  '/admin/email-deliveries',
+  'Read recent email delivery reports',
+  'admin',
+  undefined,
+  'Collection',
+  200,
+  'Paginated newest-first reports: masked recipient, provider, message ID, status, event timestamps and report note. No email bodies, subjects, OTPs or raw provider errors. Application reports begin after deployment; TTL retention is thirty days.',
+  pages,
+);
+add(
+  'post',
+  '/admin/email-deliveries/{id}/check',
+  'Fetch SES delivery events without resending',
+  'admin',
+  undefined,
+  'Object',
+  200,
+  'Admin session and same-origin protection required. Twenty checks/client/minute, one SES insights request per 1.1 seconds per API process. Fetches the stored SES message ID in its original region. Delivery comes only from an AWS DELIVERY event. Bounce/complaint/rejection override earlier delivery. Unavailable insights preserve prior status and return an actionable reportNote. Requires SES VDM and ses:GetMessageInsights permission. SMTP cannot report downstream delivery here.',
+);
 add(
   'put',
   '/admin/settings',

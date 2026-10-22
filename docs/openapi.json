@@ -6124,7 +6124,7 @@
         "tags": [
           "admin"
         ],
-        "description": "Requires admin permission and resource ownership where applicable. Email or WhatsApp only. Current admin password and recipient consent required; five attempts per client per fifteen minutes. Email recipient must be an email address; WhatsApp recipient must be E.164. Sends once with no automatic retry. WhatsApp uses the approved no-variable template. Success means provider acceptance, not confirmed delivery. No payment test or payment activation.",
+        "description": "Requires admin permission and resource ownership where applicable. Email or WhatsApp only. Current admin password and recipient consent required; five attempts per client per fifteen minutes. Email recipient must be an email address; WhatsApp recipient must be E.164. Sends once with no automatic retry. Production email sends create masked delivery reports and return deliveryId with accepted:true and message. WhatsApp uses the approved no-variable template. Success means provider acceptance, not confirmed delivery. No payment test or payment activation.",
         "security": [
           {
             "Session": []
@@ -6387,6 +6387,258 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / invite required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, uniqueness or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider or release gate unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/email-deliveries": {
+      "get": {
+        "summary": "Read recent email delivery reports",
+        "operationId": "get__admin_email_deliveries",
+        "tags": [
+          "admin"
+        ],
+        "description": "Requires admin permission and resource ownership where applicable. Paginated newest-first reports: masked recipient, provider, message ID, status, event timestamps and report note. No email bodies, subjects, OTPs or raw provider errors. Application reports begin after deployment; TTL retention is thirty days.",
+        "security": [
+          {
+            "Session": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / invite required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, uniqueness or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider or release gate unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/email-deliveries/{id}/check": {
+      "post": {
+        "summary": "Fetch SES delivery events without resending",
+        "operationId": "post__admin_email_deliveries_id_check",
+        "tags": [
+          "admin"
+        ],
+        "description": "Requires admin permission and resource ownership where applicable. Admin session and same-origin protection required. Twenty checks/client/minute, one SES insights request per 1.1 seconds per API process. Fetches the stored SES message ID in its original region. Delivery comes only from an AWS DELIVERY event. Bounce/complaint/rejection override earlier delivery. Unavailable insights preserve prior status and return an actionable reportNote. Requires SES VDM and ses:GetMessageInsights permission. SMTP cannot report downstream delivery here.",
+        "security": [
+          {
+            "Session": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{24}$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/RequestHeader"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Success",

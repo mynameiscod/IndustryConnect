@@ -12,6 +12,7 @@ export interface ProviderPayment {
   status: string;
   amount_refunded?: number;
 }
+export type EmailReceipt = { provider: 'ses' | 'smtp'; messageId: string; deliveryId?: string };
 export interface Providers {
   fetchOrder(id: string): Promise<{
     id: string;
@@ -43,7 +44,7 @@ export interface Providers {
     emails: string[];
   }): Promise<{ url?: string; eventId: string }>;
   cancelMeeting(eventId: string): Promise<void>;
-  sendEmail(to: string, subject: string, text: string): Promise<void>;
+  sendEmail(to: string, subject: string, text: string): Promise<void | EmailReceipt>;
   startPhone(phone: string): Promise<void>;
   verifyPhone(phone: string, code: string): Promise<boolean>;
 }
@@ -68,6 +69,17 @@ export function verifyHmac(value: string | Buffer, signature: string, secret: st
   if (!secret || !/^[a-f0-9]{64}$/i.test(signature)) return false;
   const expected = createHmac('sha256', secret).update(value).digest();
   return timingSafeEqual(expected, Buffer.from(signature, 'hex'));
+}
+export function sesClient(c: Config) {
+  return new SESv2Client({
+    region: c.SES_REGION,
+    credentials:
+      c.SES_ACCESS_KEY_ID && c.SES_SECRET_ACCESS_KEY
+        ? { accessKeyId: c.SES_ACCESS_KEY_ID, secretAccessKey: c.SES_SECRET_ACCESS_KEY }
+        : undefined,
+    maxAttempts: 1,
+    requestHandler: { requestTimeout: 15000, connectionTimeout: 5000 },
+  });
 }
 export function createProviders(c: Config): Providers {
   const google = new OAuth2Client(
@@ -222,15 +234,7 @@ export function createProviders(c: Config): Providers {
           'EMAIL_UNAVAILABLE',
           'Amazon SES is not configured',
         );
-        const client = new SESv2Client({
-          region: c.SES_REGION,
-          credentials:
-            c.SES_ACCESS_KEY_ID && c.SES_SECRET_ACCESS_KEY
-              ? { accessKeyId: c.SES_ACCESS_KEY_ID, secretAccessKey: c.SES_SECRET_ACCESS_KEY }
-              : undefined,
-          maxAttempts: 1,
-          requestHandler: { requestTimeout: 15000, connectionTimeout: 5000 },
-        });
+        const client = sesClient(c);
         try {
           const result = await client.send(
             new SendEmailCommand({
@@ -246,16 +250,18 @@ export function createProviders(c: Config): Providers {
             }),
           );
           assert(result.MessageId, 502, 'EMAIL_ERROR', 'SES did not acknowledge the message');
-        } catch {
+          return { provider: 'ses', messageId: result.MessageId };
+        } catch (error) {
           throw new AppError(
             502,
-            'EMAIL_ERROR',
+            (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 400
+              ? 'EMAIL_REJECTED'
+              : 'EMAIL_ERROR',
             'SES delivery request failed; check region, sender identity, permissions and sandbox restrictions',
           );
         } finally {
           client.destroy();
         }
-        return;
       }
       assert(
         c.SMTP_HOST && c.EMAIL_FROM,
@@ -271,7 +277,9 @@ export function createProviders(c: Config): Providers {
         auth: c.SMTP_USER ? { user: c.SMTP_USER, pass: c.SMTP_PASSWORD } : undefined,
         connectionTimeout: 15000,
       });
-      await transport.sendMail({ from: c.EMAIL_FROM, to, subject, text });
+      const result = await transport.sendMail({ from: c.EMAIL_FROM, to, subject, text });
+      assert(result.accepted?.length, 502, 'EMAIL_REJECTED', 'SMTP server rejected the recipient');
+      return { provider: 'smtp', messageId: result.messageId };
     },
     startPhone: async (phoneNumber) => {
       await phone('Verifications', { To: phoneNumber, Channel: 'sms' });

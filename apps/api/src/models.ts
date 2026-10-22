@@ -262,7 +262,40 @@ export const Invite = mongoose.model(
     opts,
   ),
 );
+export const EmailDelivery = mongoose.model(
+  'EmailDelivery',
+  new Schema(
+    {
+      provider: { type: String, enum: ['ses', 'smtp'], required: true },
+      messageId: String,
+      recipient: { type: String, required: true },
+      region: String,
+      status: {
+        type: String,
+        enum: [
+          'sending',
+          'accepted',
+          'delivered',
+          'bounced',
+          'complained',
+          'rejected',
+          'delayed',
+          'failed',
+          'unknown',
+        ],
+        required: true,
+      },
+      events: [new Schema({ type: { type: String, required: true }, at: Date }, { _id: false })],
+      reportNote: String,
+      lastCheckedAt: Date,
+    },
+    opts,
+  ),
+);
+EmailDelivery.schema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 86400 });
+EmailDelivery.schema.index({ createdAt: -1, _id: -1 });
 export const models = [
+  EmailDelivery,
   User,
   Expert,
   Category,

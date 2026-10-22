@@ -25,6 +25,8 @@ import { submitExpert, reviewExpert, expertReadiness } from './onboarding.js';
 import { AppError, assert, type Providers, verifyHmac } from './providers.js';
 import { createRuntimeProviders } from './provider-runtime.js';
 import { sendWhatsAppTest } from './whatsapp.js';
+import { checkEmailDelivery } from './email-delivery.js';
+import { EmailDelivery } from './models.js';
 import {
   effectiveProviderConfig,
   integrationMetadata,
@@ -868,6 +870,24 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   });
   app.get('/api/admin/settings', async (_req, res) => res.json(await ensureSettings()));
   app.get('/api/admin/integrations', (_req, res) => res.json(integrationMetadata(c)));
+  app.get('/api/admin/email-deliveries', async (req, res) => {
+    const pg = pageMeta(req.query);
+    res.json({
+      items: await EmailDelivery.find()
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(pg.skip)
+        .limit(pg.limit),
+      total: await EmailDelivery.countDocuments(),
+      page: pg.page,
+    });
+  });
+  app.post(
+    '/api/admin/email-deliveries/:id/check',
+    rateLimit({ windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
+    async (req, res) => {
+      res.json(await checkEmailDelivery(effectiveProviderConfig(c), id.parse(req.params.id)));
+    },
+  );
   app.post(
     '/api/admin/integrations/:provider/test',
     rateLimit({ windowMs: 15 * 60000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false }),
@@ -902,17 +922,21 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
       );
       // Record intent before the external side effect; never retry a test automatically.
       await audit(res.locals.user._id, 'integration.test.requested', provider);
-      if (provider === 'email')
-        await p.sendEmail(
-          data.recipient,
-          'IndustryConnect delivery test',
-          'This is the delivery test requested by your IndustryConnect administrator.',
-        );
-      else await sendWhatsAppTest(snapshot, data.recipient);
+      const receipt =
+        provider === 'email'
+          ? await p.sendEmail(
+              data.recipient,
+              'IndustryConnect delivery test',
+              'This is the delivery test requested by your IndustryConnect administrator.',
+            )
+          : await sendWhatsAppTest(snapshot, data.recipient);
       res.json({
         accepted: true,
+        deliveryId: receipt?.deliveryId,
         message:
-          'Provider accepted the request. Confirm receipt with the recipient; acceptance does not prove delivery.',
+          provider === 'email'
+            ? 'Email submitted. View its delivery status in Email delivery reports below.'
+            : 'WhatsApp message submitted. Confirm receipt with the recipient.',
       });
     },
   );

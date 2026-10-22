@@ -1,6 +1,7 @@
 import type { Config } from './config.js';
 import { createProviders, type Providers } from './providers.js';
 import { effectiveProviderConfig } from './integrations.js';
+import { sendTrackedEmail } from './email-delivery.js';
 // Each operation gets an immutable credential snapshot shared with the worker via encrypted storage.
 export function createRuntimeProviders(c: Config): Providers {
   return new Proxy({} as Providers, {
@@ -14,7 +15,10 @@ export function createRuntimeProviders(c: Config): Providers {
           'startPhone',
           'verifyPhone',
         ].includes(property);
-        const providers = createProviders(integrationOperation ? effectiveProviderConfig(c) : c);
+        const snapshot = integrationOperation ? effectiveProviderConfig(c) : c;
+        const providers = createProviders(snapshot);
+        if (property === 'sendEmail')
+          return sendTrackedEmail(snapshot, providers, ...(args as [string, string, string]));
         return (providers[property] as (...args: unknown[]) => unknown)(...args);
       };
     },

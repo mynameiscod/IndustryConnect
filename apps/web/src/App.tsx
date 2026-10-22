@@ -5382,6 +5382,7 @@ type IntegrationSettings = {
 };
 function AdminIntegrations() {
   const data = useData<IntegrationSettings>('/admin/integrations');
+  const [reportVersion, setReportVersion] = useState(0);
   if (data.loading && !data.data) return <Loader />;
   if (data.error) return <Alert>{data.error}</Alert>;
   if (!data.data) return null;
@@ -5429,9 +5430,11 @@ function AdminIntegrations() {
             revision={data.data!.revision}
             available={data.data!.available && !data.loading}
             onSaved={data.reload}
+            onTested={() => setReportVersion((v) => v + 1)}
           />
         ))}
       </div>
+      <EmailDeliveryReports version={reportVersion} />
     </section>
   );
 }
@@ -5440,11 +5443,13 @@ function IntegrationCard({
   revision,
   available,
   onSaved,
+  onTested,
 }: {
   provider: IntegrationProvider;
   revision: number;
   available: boolean;
   onSaved: () => void;
+  onTested: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
       Object.fromEntries(provider.fields.map((f) => [f.key, f.value])),
@@ -5455,9 +5460,17 @@ function IntegrationCard({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testPassword, setTestPassword] = useState(''),
+    [testError, setTestError] = useState(''),
+    [testNotice, setTestNotice] = useState('');
   const [recipient, setRecipient] = useState(''),
     [consent, setConsent] = useState(false);
   const [savedFields, setSavedFields] = useState(provider.fields);
+  const dirty =
+    enabled !== provider.enabled ||
+    cleared.length > 0 ||
+    savedFields.some((f) => (values[f.key] ?? '') !== f.value);
   const Icon =
     provider.id === 'email'
       ? Mail
@@ -5467,165 +5480,219 @@ function IntegrationCard({
           ? CalendarDays
           : Phone;
   return (
-    <form
-      className="admin-surface integration-card"
-      aria-label={provider.title + ' configuration'}
-      onSubmit={async (event) => {
-        event.preventDefault();
-        setBusy(true);
-        setError('');
-        setNotice('');
-        try {
-          const result = (await post(
-            '/admin/integrations/' + provider.id,
-            { revision, enabled, fields: values, clearSecrets: cleared, password },
-            'PUT',
-          )) as IntegrationSettings;
-          const updated = result.providers.find((p) => p.id === provider.id)!;
-          setSavedFields(updated.fields);
-          setValues(Object.fromEntries(updated.fields.map((f) => [f.key, f.value])));
-          setCleared([]);
-          setNotice(
-            'Configuration saved. Complete a real provider sign-in or delivery check before relying on this integration.',
-          );
-          onSaved();
-        } catch (e) {
-          setError(msg(e));
-        } finally {
-          setPassword('');
-          setBusy(false);
-        }
-      }}
-    >
-      <div className="integration-card-heading">
-        <span>
-          <Icon size={24} />
-        </span>
-        <div>
-          <h3>{provider.title}</h3>
-          <small>
-            {provider.configured ? 'Configured / not externally validated' : 'Not connected'}
-          </small>
-        </div>
-      </div>
-      <p className="admin-muted">{provider.help}</p>
-      <label className="integration-enable">
-        <input
-          type="checkbox"
-          className="form-check-input"
-          checked={enabled}
-          disabled={busy || !available}
-          onChange={(e) => setEnabled(e.target.checked)}
-        />{' '}
-        {provider.id === 'razorpay'
-          ? 'Mark staged Razorpay credentials ready for operator review'
-          : 'Enable ' + provider.title.toLowerCase()}
-      </label>
-      {savedFields
-        .filter(
-          (field) =>
-            provider.id !== 'email' ||
-            (field.key.startsWith('SMTP_')
-              ? values.EMAIL_PROVIDER !== 'ses'
-              : field.key.startsWith('SES_')
-                ? values.EMAIL_PROVIDER === 'ses'
-                : true),
-        )
-        .map((field) => (
-          <div className="integration-field" key={field.key}>
-            <Field label={field.label}>
-              {field.options ? (
-                <select
-                  className="form-select"
-                  name={field.key}
-                  value={values[field.key] ?? ''}
-                  disabled={busy || !available}
-                  onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                >
-                  {field.options.map((option) => (
-                    <option key={option} value={option}>
-                      {option === 'ses' ? 'Amazon SES' : 'SMTP'}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="form-control"
-                  name={field.key}
-                  type={field.secret ? 'password' : field.type}
-                  value={values[field.key] ?? ''}
-                  onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                  autoComplete={field.secret ? 'new-password' : 'off'}
-                  maxLength={4096}
-                  min={field.type === 'number' ? 1 : undefined}
-                  max={field.type === 'number' ? 65535 : undefined}
-                  disabled={busy || !available}
-                  placeholder={
-                    field.secret && field.configured ? 'Saved secret - leave blank to keep' : ''
-                  }
-                />
-              )}
-            </Field>
-            {field.secret && (
-              <div className="integration-secret-state">
-                <span>{field.configured ? 'A secret is saved' : 'No saved secret'}</span>
-                {field.configured && (
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={cleared.includes(field.key)}
-                      disabled={busy || !available}
-                      onChange={(e) =>
-                        setCleared((current) =>
-                          e.target.checked
-                            ? [...current, field.key]
-                            : current.filter((k) => k !== field.key),
-                        )
-                      }
-                    />{' '}
-                    Clear saved secret: {field.label}
-                  </label>
-                )}
-              </div>
-            )}
+    <section className="admin-surface integration-card">
+      <form
+        className="integration-settings-form"
+        aria-label={provider.title + ' configuration'}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError('');
+          setNotice('');
+          try {
+            const result = (await post(
+              '/admin/integrations/' + provider.id,
+              { revision, enabled, fields: values, clearSecrets: cleared, password },
+              'PUT',
+            )) as IntegrationSettings;
+            const updated = result.providers.find((p) => p.id === provider.id)!;
+            setSavedFields(updated.fields);
+            setValues(Object.fromEntries(updated.fields.map((f) => [f.key, f.value])));
+            setCleared([]);
+            setNotice(
+              provider.id === 'razorpay'
+                ? 'Payment credentials saved for operator review.'
+                : updated.enabled
+                  ? 'Settings saved. Provider is enabled.'
+                  : 'Settings saved. Provider is disabled; enable it above before testing.',
+            );
+            onSaved();
+          } catch (e) {
+            setError(msg(e));
+          } finally {
+            setPassword('');
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="integration-card-heading">
+          <span>
+            <Icon size={24} />
+          </span>
+          <div>
+            <h3>{provider.title}</h3>
+            <small>
+              {provider.enabled
+                ? provider.configured
+                  ? 'Enabled - settings saved'
+                  : 'Enabled - setup incomplete'
+                : 'Disabled - not active'}
+            </small>
           </div>
-        ))}
-      <Field label="Confirm admin password">
-        <input
-          className="form-control"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          required
-          disabled={busy || !available}
-        />
-      </Field>
-      {error && <Alert>{error}</Alert>}
-      {notice && <Alert kind="success">{notice}</Alert>}
-      <button className="btn btn-primary w-100" disabled={busy || !available}>
-        {busy ? 'Saving...' : 'Save ' + provider.title.toLowerCase()}
-      </button>
-      {provider.id === 'razorpay' && (
-        <p className="admin-muted">
-          Webhook URL: <code>{window.location.origin}/api/webhooks/razorpay</code>. Staged
-          credentials do not change checkout mode or Route payouts.
-        </p>
-      )}
-      {(provider.id === 'email' || provider.id === 'whatsapp') && (
-        <div className="integration-delivery-test">
-          <h4>Test saved configuration</h4>
+        </div>
+        <p className="admin-muted">{provider.help}</p>
+        <label className="integration-enable">
+          <input
+            type="checkbox"
+            className="form-check-input"
+            checked={enabled}
+            disabled={busy || !available}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />{' '}
+          {provider.id === 'razorpay'
+            ? 'Mark staged Razorpay credentials ready for operator review'
+            : 'Enable ' + provider.title.toLowerCase()}
+        </label>
+        {savedFields
+          .filter(
+            (field) =>
+              provider.id !== 'email' ||
+              (field.key.startsWith('SMTP_')
+                ? values.EMAIL_PROVIDER !== 'ses'
+                : field.key.startsWith('SES_')
+                  ? values.EMAIL_PROVIDER === 'ses'
+                  : true),
+          )
+          .map((field) => (
+            <div className="integration-field" key={field.key}>
+              <Field label={field.label}>
+                {field.options ? (
+                  <select
+                    className="form-select"
+                    name={field.key}
+                    value={values[field.key] ?? ''}
+                    disabled={busy || !available}
+                    onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+                  >
+                    {field.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option === 'ses' ? 'Amazon SES' : 'SMTP'}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="form-control"
+                    name={field.key}
+                    type={field.secret ? 'password' : field.type}
+                    value={values[field.key] ?? ''}
+                    onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+                    autoComplete={field.secret ? 'new-password' : 'off'}
+                    maxLength={4096}
+                    min={field.type === 'number' ? 1 : undefined}
+                    max={field.type === 'number' ? 65535 : undefined}
+                    disabled={busy || !available}
+                    placeholder={
+                      field.secret && field.configured ? 'Saved secret - leave blank to keep' : ''
+                    }
+                  />
+                )}
+              </Field>
+              {field.secret && (
+                <div className="integration-secret-state">
+                  <span>{field.configured ? 'A secret is saved' : 'No saved secret'}</span>
+                  {field.configured && (
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={cleared.includes(field.key)}
+                        disabled={busy || !available}
+                        onChange={(e) =>
+                          setCleared((current) =>
+                            e.target.checked
+                              ? [...current, field.key]
+                              : current.filter((k) => k !== field.key),
+                          )
+                        }
+                      />{' '}
+                      Clear saved secret: {field.label}
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        <Field label="Confirm admin password">
+          <input
+            className="form-control"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+            disabled={busy || !available}
+          />
+        </Field>
+        {error && <Alert>{error}</Alert>}
+        {notice && <Alert kind="success">{notice}</Alert>}
+        <button className="btn btn-primary w-100" disabled={busy || !available}>
+          {busy && !testing ? 'Saving...' : 'Save ' + provider.title.toLowerCase()}
+        </button>
+        {provider.id === 'razorpay' && (
           <p className="admin-muted">
-            Save changes first. A test sends one real message and may incur provider charges.
-            Provider acceptance does not prove delivery.
+            Webhook URL: <code>{window.location.origin}/api/webhooks/razorpay</code>. Staged
+            credentials do not change checkout mode or Route payouts.
           </p>
+        )}
+      </form>
+      {(provider.id === 'email' || provider.id === 'whatsapp') && (
+        <form
+          className="integration-delivery-test"
+          aria-label={provider.title + ' test'}
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setTesting(true);
+            setBusy(true);
+            setTestError('');
+            setTestNotice('');
+            try {
+              const result = await post('/admin/integrations/' + provider.id + '/test', {
+                recipient,
+                consent,
+                password: testPassword,
+              });
+              setTestNotice(result.message);
+              onTested();
+            } catch (error) {
+              setTestError(msg(error));
+              onTested();
+            } finally {
+              setTestPassword('');
+              setTesting(false);
+              setBusy(false);
+            }
+          }}
+        >
+          <h4>Send a test {provider.id === 'email' ? 'email' : 'WhatsApp message'}</h4>
+          {!provider.configured ? (
+            <Alert kind="info">Step 1: Enable this provider above and save its settings.</Alert>
+          ) : dirty ? (
+            <Alert kind="info">Save your changes above before testing.</Alert>
+          ) : (
+            <p className="admin-muted">
+              Settings are saved and enabled. Enter a recipient and your admin password, then
+              confirm permission to send one real message.
+            </p>
+          )}
           <Field label="Test recipient">
             <input
               className="form-control"
               type={provider.id === 'email' ? 'email' : 'tel'}
               value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
+              onChange={(event) => setRecipient(event.target.value)}
               placeholder={provider.id === 'email' ? 'you@example.com' : '+919876543210'}
+              required
+              disabled={busy || !available}
+            />
+          </Field>
+          <Field label="Admin password for test">
+            <input
+              className="form-control"
+              type="password"
+              autoComplete="current-password"
+              value={testPassword}
+              onChange={(event) => setTestPassword(event.target.value)}
+              required
               disabled={busy || !available}
             />
           </Field>
@@ -5633,43 +5700,173 @@ function IntegrationCard({
             <input
               type="checkbox"
               checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
+              onChange={(event) => setConsent(event.target.checked)}
+              required
               disabled={busy || !available}
             />{' '}
             I have permission to send this test to the recipient.
           </label>
+          <p className="admin-muted">
+            {!recipient
+              ? 'Enter a test recipient.'
+              : !testPassword
+                ? 'Enter your admin password in the test section.'
+                : !consent
+                  ? 'Confirm recipient permission to enable sending.'
+                  : 'Ready to send. Provider charges may apply.'}
+          </p>
+          {testError && <Alert>{testError}</Alert>}
+          {testNotice && <Alert kind="info">{testNotice}</Alert>}
           <button
-            type="button"
-            className="btn btn-outline-primary w-100"
-            disabled={busy || !available || !recipient || !consent || !password}
-            onClick={async () => {
-              setBusy(true);
-              setError('');
-              setNotice('');
-              try {
-                const result = await post('/admin/integrations/' + provider.id + '/test', {
-                  recipient,
-                  consent,
-                  password,
-                });
-                setNotice(result.message);
-              } catch (e) {
-                setError(msg(e));
-              } finally {
-                setPassword('');
-                setBusy(false);
-              }
-            }}
+            className="btn btn-primary w-100"
+            disabled={
+              busy ||
+              !available ||
+              !provider.configured ||
+              dirty ||
+              !recipient ||
+              !consent ||
+              !testPassword
+            }
           >
-            {busy
+            {testing
               ? 'Sending...'
               : provider.id === 'email'
                 ? 'Send test email'
                 : 'Send test WhatsApp message'}
           </button>
-        </div>
+        </form>
       )}
-    </form>
+    </section>
+  );
+}
+function EmailDeliveryReports({ version }: { version: number }) {
+  const [page, setPage] = useState(1),
+    [checking, setChecking] = useState(''),
+    [error, setError] = useState('');
+  type Report = {
+    _id: string;
+    provider: string;
+    recipient: string;
+    status: string;
+    messageId?: string;
+    createdAt: string;
+    lastCheckedAt?: string;
+    reportNote?: string;
+    events?: { type: string; at: string }[];
+  };
+  const reports = useData<{ items: Report[]; total: number }>(
+    `/admin/email-deliveries?page=${page}&limit=10`,
+  );
+  useEffect(() => {
+    reports.reload();
+  }, [version]);
+  const label: Record<string, string> = {
+    sending: 'Sending',
+    accepted: 'Accepted - delivery pending',
+    delivered: 'Delivered to mail server',
+    bounced: 'Bounced',
+    complained: 'Spam complaint',
+    rejected: 'Rejected by SES',
+    delayed: 'Delivery delayed',
+    failed: 'Send failed',
+    unknown: 'Send outcome unknown',
+  };
+  return (
+    <section className="admin-surface email-delivery-reports" aria-label="Email delivery reports">
+      <div className="d-flex flex-wrap justify-content-between gap-3 align-items-center">
+        <div>
+          <h2>Email delivery reports</h2>
+          <p className="admin-muted">
+            Recent application emails, retained for 30 days. Reports start with emails sent after
+            this update. A delivery confirmation comes from AWS, never from the Send button.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-outline-secondary"
+          onClick={reports.reload}
+          disabled={reports.loading}
+        >
+          Refresh history
+        </button>
+      </div>
+      <details className="admin-info-panel d-block">
+        <summary>How to enable SES delivery reporting</summary>
+        <p>
+          Enable Virtual Deliverability Manager in the sending region and grant{' '}
+          <code>ses:GetMessageInsights</code> to your sending identity. AWS charges may apply. Check
+          delivery fetches an existing report; it does not send another email. SMTP delivery details
+          remain in your mail provider.
+        </p>
+      </details>
+      {reports.error && <Alert>{reports.error}</Alert>}
+      {error && <Alert>{error}</Alert>}
+      {reports.loading && !reports.data ? (
+        <Loader />
+      ) : reports.data?.items?.length ? (
+        <div className="email-report-list">
+          {reports.data.items.map((report) => (
+            <article className="email-report-row" key={report._id}>
+              <div className="d-flex flex-wrap justify-content-between gap-2">
+                <strong>{report.recipient}</strong>
+                <span
+                  className={`badge ${report.status === 'delivered' ? 'text-bg-success' : ['failed', 'rejected', 'bounced', 'complained'].includes(report.status) ? 'text-bg-danger' : 'text-bg-secondary'}`}
+                >
+                  {label[report.status] ?? report.status}
+                </span>
+              </div>
+              <small>
+                {report.provider.toUpperCase()} / {date(report.createdAt)}
+              </small>
+              <p>{report.reportNote}</p>
+              <div className="d-flex flex-wrap gap-3 align-items-center">
+                {report.provider === 'ses' && report.messageId && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary btn-sm"
+                    disabled={!!checking}
+                    onClick={async () => {
+                      setChecking(report._id);
+                      setError('');
+                      try {
+                        await post(`/admin/email-deliveries/${report._id}/check`, {});
+                        reports.reload();
+                      } catch (e) {
+                        setError(msg(e));
+                      } finally {
+                        setChecking('');
+                      }
+                    }}
+                  >
+                    {checking === report._id ? 'Checking SES...' : 'Check delivery'}
+                  </button>
+                )}
+                {report.lastCheckedAt && <small>Last checked {date(report.lastCheckedAt)}</small>}
+              </div>
+              <details>
+                <summary>Message details</summary>
+                <code>{report.messageId ?? 'Provider message ID unavailable'}</code>
+                {report.events?.length ? (
+                  <ul>
+                    {report.events.map((event, index) => (
+                      <li key={index}>
+                        {event.type} / {date(event.at)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No delivery events recorded yet.</p>
+                )}
+              </details>
+            </article>
+          ))}
+        </div>
+      ) : (
+        !reports.error && <p>No email reports yet. Send a test email to create the first report.</p>
+      )}
+      <Pager page={page} setPage={setPage} total={reports.data?.total ?? 0} limit={10} />
+    </section>
   );
 }
 function AdminPolicies() {

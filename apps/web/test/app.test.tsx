@@ -1721,7 +1721,7 @@ describe('admin provider configuration screen', () => {
       target: { value: 'admin-current-password' },
     });
     fireEvent.click(within(form).getByRole('button', { name: 'Save email delivery' }));
-    expect(await screen.findByText(/Configuration saved. Complete a real provider/)).toBeTruthy();
+    expect(await screen.findByText('Settings saved. Provider is enabled.')).toBeTruthy();
     const call = vi
       .mocked(fetch)
       .mock.calls.find(([url]) => String(url) === '/api/admin/integrations/email');
@@ -1739,17 +1739,21 @@ describe('admin provider configuration screen', () => {
     fireEvent.change(within(form).getByLabelText('Email provider'), { target: { value: 'ses' } });
     expect(within(form).getByLabelText('SES region')).toBeTruthy();
     expect(within(form).queryByLabelText('SMTP host')).toBeNull();
-    const send = within(form).getByRole('button', { name: 'Send test email' }) as HTMLButtonElement;
+    fireEvent.change(within(form).getByLabelText('Email provider'), { target: { value: 'smtp' } });
+    const testForm = screen.getByRole('form', { name: 'Email delivery test' });
+    const send = within(testForm).getByRole('button', {
+      name: 'Send test email',
+    }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    fireEvent.change(within(form).getByLabelText('Test recipient'), {
+    fireEvent.change(within(testForm).getByLabelText('Test recipient'), {
       target: { value: 'recipient@example.invalid' },
     });
-    fireEvent.change(within(form).getByLabelText('Confirm admin password'), {
+    fireEvent.change(within(testForm).getByLabelText('Admin password for test'), {
       target: { value: 'admin-password' },
     });
     expect(send.disabled).toBe(true);
     fireEvent.click(
-      within(form).getByLabelText('I have permission to send this test to the recipient.'),
+      within(testForm).getByLabelText('I have permission to send this test to the recipient.'),
     );
     fireEvent.click(send);
     await screen.findByText('Provider accepted the request.');
@@ -1759,9 +1763,9 @@ describe('admin provider configuration screen', () => {
       consent: true,
       password: 'admin-password',
     });
-    expect((within(form).getByLabelText('Confirm admin password') as HTMLInputElement).value).toBe(
-      '',
-    );
+    expect(
+      (within(testForm).getByLabelText('Admin password for test') as HTMLInputElement).value,
+    ).toBe('');
   });
   it('preserves credential drafts after failure but clears the admin reauthentication password', async () => {
     setup(true);
@@ -1785,6 +1789,44 @@ describe('admin provider configuration screen', () => {
     );
     expect((within(form).getByLabelText('Confirm admin password') as HTMLInputElement).value).toBe(
       '',
+    );
+  });
+  it('shows pending delivery separately and refreshes provider reports without sending again', async () => {
+    setup();
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let delivered = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).startsWith('/api/admin/email-deliveries')) {
+        if (init?.method === 'POST') delivered = true;
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                _id: 'r1',
+                provider: 'ses',
+                recipient: 're***@example.invalid',
+                messageId: 'ses-test',
+                createdAt: '2026-10-22T08:00:00.000Z',
+                status: delivered ? 'delivered' : 'accepted',
+                reportNote: delivered
+                  ? 'The recipient mail server accepted this email.'
+                  : 'Delivery confirmation is pending.',
+              },
+            ],
+            total: 1,
+          }),
+        } as Response;
+      }
+      return fallback(url, init);
+    });
+    await open();
+    const reports = screen.getByRole('region', { name: 'Email delivery reports' });
+    expect(await within(reports).findByText('Accepted - delivery pending')).toBeTruthy();
+    fireEvent.click(within(reports).getByRole('button', { name: 'Check delivery' }));
+    expect(await within(reports).findByText('Delivered to mail server')).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/email/test'))).toBe(
+      false,
     );
   });
 });

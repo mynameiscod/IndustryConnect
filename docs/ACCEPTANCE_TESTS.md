@@ -84,3 +84,12 @@ Expert onboarding completion (22 October 2026):
 - Rejection note is visible; resubmission returns to pending. Professional claim changes hide an approved listing until reapproval. Unchanged profile and confirmation preference alone preserve approval.
 - Suspended experts cannot self-resubmit/restore. Other users cannot review or edit their application. Superseded email jobs are skipped; provider failures remain visible in the job queue.
 - Multiple expertise categories survive editing and can be added/removed explicitly. Readiness links only to an approved profile with an active published service. Check phone and desktop viewport layout manually before claiming browser certification.
+
+
+Email delivery reporting acceptance:
+- Separate settings/test forms; test explains disabled or unsaved prerequisites and has its own password and recipient-permission input.
+- All runtime email sends persist masked-recipient reports and provider IDs; no OTP/body/subject/raw provider error is retained. Unknown outcomes are separate from definite rejection.
+- Only admin can list/check reports; POST checks retain same-origin protection. Refresh checks the existing SES ID and never resends.
+- SEND/OPEN alone cannot set delivered. AWS DELIVERY can; bounce/complaint/rejection take precedence. Incomplete later results or missing permissions cannot erase recorded delivery events.
+- Reporting-unavailable states identify VDM/IAM setup. SMTP never claims final delivery. History is paginated, newest first, with thirty-day TTL retention.
+- Automated SES events are simulated; real AWS delivery receipt needs external validation and permissions. Prior messages without captured IDs have no reconstructed reports.
