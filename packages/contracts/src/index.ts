@@ -14,7 +14,12 @@ export const pagination = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(24),
 });
 export const registerInput = z
-  .object({ name: z.string().trim().min(2).max(80), email, password: z.string().min(12).max(128) })
+  .object({
+    name: z.string().trim().min(2).max(80),
+    email,
+    password: z.string().min(12).max(128),
+    accountPurpose: z.enum(['customer', 'expert']).default('customer'),
+  })
   .strict();
 export const loginInput = z.object({ email, password: z.string().min(1).max(128) }).strict();
 export const expertInput = z

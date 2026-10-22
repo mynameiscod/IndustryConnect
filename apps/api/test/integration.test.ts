@@ -169,7 +169,12 @@ describe('complete expert onboarding', () => {
         await agent
           .post('/api/auth/register')
           .set(headers)
-          .send({ name: 'New Expert', email, password: 'a-long-test-password-123' })
+          .send({
+            name: 'New Expert',
+            email,
+            password: 'a-long-test-password-123',
+            accountPurpose: 'expert',
+          })
       ).status,
     ).toBe(202);
     const text = vi.mocked(p.sendEmail).mock.calls[0][2];
@@ -177,6 +182,10 @@ describe('complete expert onboarding', () => {
     expect(
       (await agent.post('/api/auth/email/verify').set(headers).send({ email, code })).status,
     ).toBe(200);
+    expect((await agent.get('/api/me')).body).toMatchObject({
+      accountPurpose: 'expert',
+      roles: ['customer'],
+    });
     expect((await agent.get('/api/expert/onboarding')).body).toMatchObject({
       emailVerified: true,
       profileSubmitted: false,
@@ -198,6 +207,67 @@ describe('complete expert onboarding', () => {
     expect(saved.status).toBe(200);
     expect(saved.body.verification).toBe('pending');
     expect((await agent.get('/api/me')).body.roles).toContain('expert');
+    const pending = await agent.get('/api/expert/dashboard');
+    expect(pending.status).toBe(200);
+    expect(pending.body.profile.headline).toBe('Experienced technology mentor');
+    expect(pending.body.onboarding).toMatchObject({
+      verification: 'pending',
+      listed: false,
+      activeServices: 0,
+    });
+    const service = await agent
+      .post('/api/expert/services')
+      .set(headers)
+      .send({
+        categoryId: String(f.category._id),
+        title: 'Technology guidance',
+        description: 'A focused one-to-one technology conversation.',
+        durationMinutes: 45,
+        pricePaise: 249900,
+        mode: 'online',
+        active: true,
+      });
+    expect(service.status).toBe(201);
+    const startsAt = new Date(
+      Math.ceil((Date.now() + 2 * 86400000) / 900000) * 900000,
+    ).toISOString();
+    const slot = await agent
+      .post('/api/expert/slots')
+      .set(headers)
+      .send({ serviceId: service.body._id, startsAt });
+    expect(slot.status).toBe(201);
+    expect((await agent.get('/api/expert/dashboard')).body.onboarding).toMatchObject({
+      activeServices: 1,
+      openSlots: 1,
+      listed: false,
+    });
+    expect((await review(saved.body._id, 1)).status).toBe(200);
+    const published = await agent.get('/api/expert/dashboard');
+    expect(published.body.onboarding).toMatchObject({
+      listed: true,
+      acceptingReservations: true,
+      publicPath: '/experts/registered-new-expert',
+    });
+    expect((await request(app).get('/api/experts/registered-new-expert')).status).toBe(200);
+    const reserved = await request(app)
+      .post('/api/bookings')
+      .set(headers)
+      .set('Cookie', 'market_session=customer')
+      .set('Idempotency-Key', 'expert-onboarding-reservation-001')
+      .send({ slotId: slot.body._id, termsAccepted: true });
+    expect(reserved.status).toBe(201);
+    expect((await agent.get('/api/expert/dashboard')).body.stats).toMatchObject({
+      heldReservations: 1,
+      upcomingAppointments: 0,
+    });
+    expect((await agent.get('/api/bookings?scope=expert')).body.items[0]._id).toBe(
+      reserved.body._id,
+    );
+    const unrelated = await request(app)
+      .get('/api/expert/dashboard')
+      .set('Cookie', 'market_session=other');
+    expect(unrelated.body.profile).toBeNull();
+    expect(unrelated.body.stats.heldReservations).toBe(0);
   });
   const profile = () => ({
     slug: 'new-onboarding-expert',

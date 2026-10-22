@@ -78,3 +78,7 @@ PATCH /admin/experts/{id}/verification now requires expectedRevision (zero for l
 
 
 Email reports: GET /admin/email-deliveries?page=1&limit=10 returns {items,total,page}. Items include _id, masked recipient, provider, messageId, status, events[{type,at}], reportNote and timestamps. No content/OTP is returned. POST /admin/email-deliveries/{id}/check fetches an existing SES report (admin/session/origin protected); permission/report availability failures return the preserved report status and an actionable note. API-level rate-limit or invalid ID errors use normal errors. Email test responses may include deliveryId.
+
+
+Connected expert dashboard: Register accepts optional accountPurpose=customer|expert (default customer). Public User responses always include accountPurpose. This records signup intent and cannot grant roles/verification. Profile submission transaction sets expert purpose alongside the existing expert role. Legacy experts derive expert intent from their role.
+GET /expert/dashboard (authenticated) returns own minimal profile or null, onboarding state and stats {upcomingAppointments,pendingRequests,completedSessions,heldReservations}. Counts are scoped to the signed-in expert, with zero counts for no profile. Hold counts require unexpired held reservations; confirmed not-ended appointments are separate. The response excludes Route/account credentials. Existing booking and earnings APIs remain authoritative for their detailed lists.

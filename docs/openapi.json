@@ -2737,6 +2737,114 @@
         }
       }
     },
+    "/expert/dashboard": {
+      "get": {
+        "summary": "Own expert dashboard and application result",
+        "operationId": "get__expert_dashboard",
+        "tags": [
+          "user"
+        ],
+        "description": "Requires user permission and resource ownership where applicable. Returns own profile (or null), onboarding readiness and stats {upcomingAppointments,pendingRequests,completedSessions,heldReservations}. Counts belong only to the signed-in expert. Upcoming appointments are confirmed and not ended; temporary holds are separate and not paid appointments. No profile produces zero counts. No credentials, Route account or other experts data is returned.",
+        "security": [
+          {
+            "Session": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / invite required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, uniqueness or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider or release gate unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/expert/onboarding": {
       "get": {
         "summary": "Read own onboarding progress and listing readiness",
@@ -7871,6 +7979,14 @@
             "type": "string",
             "minLength": 12,
             "maxLength": 128
+          },
+          "accountPurpose": {
+            "default": "customer",
+            "type": "string",
+            "enum": [
+              "customer",
+              "expert"
+            ]
           }
         },
         "required": [
@@ -8452,7 +8568,8 @@
           "id",
           "name",
           "emailVerified",
-          "roles"
+          "roles",
+          "accountPurpose"
         ],
         "properties": {
           "id": {
@@ -8477,6 +8594,13 @@
                 "admin"
               ]
             }
+          },
+          "accountPurpose": {
+            "enum": [
+              "customer",
+              "expert"
+            ],
+            "description": "Signup/onboarding intent only; does not grant expert verification or admin privileges. Existing expert roles map to expert intent."
           }
         }
       },

@@ -86,13 +86,18 @@ const schemas: Record<string, any> = {
   },
   User: {
     type: 'object',
-    required: ['id', 'name', 'emailVerified', 'roles'],
+    required: ['id', 'name', 'emailVerified', 'roles', 'accountPurpose'],
     properties: {
       id: { type: 'string' },
       name: { type: 'string' },
       email: { type: 'string', format: 'email' },
       emailVerified: { type: 'boolean' },
       roles: { type: 'array', items: { enum: ['customer', 'expert', 'admin'] } },
+      accountPurpose: {
+        enum: ['customer', 'expert'],
+        description:
+          'Signup/onboarding intent only; does not grant expert verification or admin privileges. Existing expert roles map to expert intent.',
+      },
     },
   },
   Collection: {
@@ -415,6 +420,16 @@ add(
 add('get', '/experts/{slug}', 'Expert storefront and verified reviews', 'public');
 add('get', '/services/{id}/slots', 'Next 100 available slots', 'public', undefined, 'Collection');
 add('get', '/expert/profile', 'Own onboarding profile or null', 'user');
+add(
+  'get',
+  '/expert/dashboard',
+  'Own expert dashboard and application result',
+  'user',
+  undefined,
+  'Object',
+  200,
+  'Returns own profile (or null), onboarding readiness and stats {upcomingAppointments,pendingRequests,completedSessions,heldReservations}. Counts belong only to the signed-in expert. Upcoming appointments are confirmed and not ended; temporary holds are separate and not paid appointments. No profile produces zero counts. No credentials, Route account or other experts data is returned.',
+);
 add(
   'get',
   '/expert/onboarding',

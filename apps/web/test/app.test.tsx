@@ -997,6 +997,183 @@ describe('expert earnings workspace', () => {
   });
 });
 
+describe('expert registration to dashboard journey', () => {
+  it('lets a returning expert applicant resume before creating a profile', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url) === '/api/me')
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'applicant',
+            name: 'New Applicant',
+            roles: ['customer'],
+            accountPurpose: 'expert',
+            emailVerified: true,
+          }),
+        } as Response;
+      if (String(url) === '/api/expert/profile')
+        return { ok: true, json: async () => null } as Response;
+      if (String(url) === '/api/expert/dashboard')
+        return {
+          ok: true,
+          json: async () => ({
+            profile: null,
+            onboarding: {
+              verification: 'not_started',
+              activeServices: 0,
+              openSlots: 0,
+              listed: false,
+              acceptingReservations: false,
+              publicPath: null,
+            },
+            stats: {
+              upcomingAppointments: 0,
+              pendingRequests: 0,
+              completedSessions: 0,
+              heldReservations: 0,
+            },
+          }),
+        } as Response;
+      return fallback(url, init);
+    });
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <App />
+      </MemoryRouter>,
+    );
+    const overview = await screen.findByRole('region', { name: 'Your expert overview' });
+    expect(
+      within(overview).getByRole('heading', { name: 'Complete your expert profile' }),
+    ).toBeTruthy();
+    expect(within(overview).queryByRole('link', { name: 'Manage services' })).toBeNull();
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('bookings?scope=expert')),
+    ).toBe(false);
+    fireEvent.click(within(overview).getByRole('link', { name: 'Complete profile' }));
+    expect(await screen.findByRole('form', { name: 'Public profile form' })).toBeTruthy();
+  });
+  it('keeps expert intent through verification and shows the saved profile and review result on the dashboard', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let signedIn = false,
+      profile: any = null,
+      approved = false;
+    const category = 'a'.repeat(24);
+    const onboarding = () => ({
+      emailVerified: true,
+      profileSubmitted: !!profile,
+      verification: approved ? 'approved' : (profile?.verification ?? 'not_started'),
+      activeServices: approved ? 1 : 0,
+      openSlots: approved ? 2 : 0,
+      listed: approved,
+      acceptingReservations: approved,
+      publicPath: approved ? '/experts/new-journey-expert' : null,
+    });
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      let data: any;
+      if (path === '/api/auth/register') data = {};
+      else if (path === '/api/auth/email/verify') {
+        signedIn = true;
+        data = {};
+      } else if (path === '/api/me' && signedIn)
+        data = {
+          id: 'new-expert',
+          name: 'New Journey Expert',
+          email: 'journey@example.invalid',
+          emailVerified: true,
+          roles: profile ? ['customer', 'expert'] : ['customer'],
+        };
+      else if (path === '/api/expert/profile') {
+        if (init?.method === 'PUT')
+          profile = {
+            ...JSON.parse(String(init.body)),
+            verification: 'pending',
+            updatedAt: '2026-10-22T10:00:00Z',
+          };
+        data = profile;
+      } else if (path === '/api/expert/onboarding') data = onboarding();
+      else if (path === '/api/expert/dashboard')
+        data = {
+          profile: profile ? { ...profile, verification: approved ? 'approved' : 'pending' } : null,
+          onboarding: onboarding(),
+          stats: {
+            upcomingAppointments: 0,
+            pendingRequests: 0,
+            completedSessions: 0,
+            heldReservations: 0,
+          },
+        };
+      else if (path.startsWith('/api/bookings?') || path === '/api/expert/services')
+        data = { items: [], total: 0 };
+      else if (path.startsWith('/api/categories'))
+        data = { items: [{ _id: category, name: 'Technology' }], total: 1 };
+      else return fallback(url, init);
+      return { ok: true, status: 200, json: async () => data } as Response;
+    });
+    render(
+      <MemoryRouter initialEntries={['/auth']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account purpose' }), {
+      target: { value: 'expert' },
+    });
+    fireEvent.change(screen.getByLabelText('Your name'), {
+      target: { value: 'New Journey Expert' },
+    });
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'journey@example.invalid' },
+    });
+    fireEvent.change(screen.getByLabelText('Password · at least 12 characters'), {
+      target: { value: 'a-long-test-password-123' },
+    });
+    fireEvent.submit(screen.getByLabelText('Email address').closest('form')!);
+    await screen.findByRole('heading', { name: 'Verify your email' });
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email', exact: true }));
+    const form = await screen.findByRole('form', { name: 'Public profile form' });
+    for (const [label, value] of [
+      ['Public profile slug', 'new-journey-expert'],
+      ['Headline', 'Thoughtful technology career guidance'],
+      ['City', 'Hyderabad'],
+      ['About your experience', 'Professional guidance based on years of technology experience.'],
+    ])
+      fireEvent.change(within(form).getByRole('textbox', { name: label, exact: true }), {
+        target: { value },
+      });
+    fireEvent.change(
+      within(form).getByRole('combobox', { name: 'Primary expertise', exact: true }),
+      {
+        target: { value: category },
+      },
+    );
+    fireEvent.submit(form);
+    fireEvent.click(await screen.findByRole('link', { name: 'View expert dashboard' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Your application is under review' }),
+    ).toBeTruthy();
+    const overview = screen.getByRole('region', { name: 'Your expert overview' });
+    expect(within(overview).getByText('Thoughtful technology career guidance')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Expert appointments' }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(within(overview).queryByRole('link', { name: 'View published profile' })).toBeNull();
+    approved = true;
+    fireEvent.click(within(overview).getByRole('button', { name: 'Refresh expert status' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Your expert profile is published' }),
+    ).toBeTruthy();
+    expect(
+      within(overview).getByRole('link', { name: 'View published profile' }).getAttribute('href'),
+    ).toBe('/experts/new-journey-expert');
+    fireEvent.click(within(overview).getByRole('link', { name: 'Manage services' }));
+    expect(await screen.findByRole('heading', { name: 'Your Services' })).toBeTruthy();
+  });
+});
+
 describe('personal booking workspace', () => {
   function mockDashboard(roles: string[], failBookings = false) {
     const fallback = vi.mocked(fetch).getMockImplementation()!;

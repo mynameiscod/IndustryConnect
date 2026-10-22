@@ -83,7 +83,14 @@ import {
 import { formatMoney } from '@market/contracts';
 import { api, checkout, loadScript, post } from './api.js';
 
-type User = { id: string; name: string; email?: string; emailVerified: boolean; roles: string[] };
+type User = {
+  id: string;
+  name: string;
+  email?: string;
+  emailVerified: boolean;
+  roles: string[];
+  accountPurpose?: 'customer' | 'expert';
+};
 const Auth = createContext<{ user: User | null; loading: boolean; refresh: () => Promise<void> }>({
   user: null,
   loading: true,
@@ -285,7 +292,9 @@ export function App() {
 
               {user && (
                 <NavLink className="nav-link" to="/dashboard">
-                  My bookings
+                  {user.accountPurpose === 'expert' || user.roles.includes('expert')
+                    ? 'Expert dashboard'
+                    : 'My bookings'}
                 </NavLink>
               )}
               {user?.roles.includes('admin') && (
@@ -328,7 +337,11 @@ export function App() {
                   >
                     <strong>{user.name}</strong>
                     <Link to="/studio">Expert Studio</Link>
-                    <Link to="/dashboard">My Bookings</Link>
+                    <Link to="/dashboard">
+                      {user.accountPurpose === 'expert' || user.roles.includes('expert')
+                        ? 'Expert dashboard'
+                        : 'My Bookings'}
+                    </Link>
                     <button
                       className="btn btn-link p-0 text-start"
                       onClick={async () => {
@@ -1389,7 +1402,7 @@ function ExpertDetail() {
 }
 
 function AuthPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, refresh } = useContext(Auth);
   const config = useData('/config');
   const destination = searchParams.get('next') === '/studio' ? '/studio' : '/dashboard';
@@ -1444,7 +1457,12 @@ function AuthPage() {
     setBusy(true);
     try {
       if (mode === 'register') {
-        await post('/auth/register', { name, email, password });
+        await post('/auth/register', {
+          name,
+          email,
+          password,
+          accountPurpose: destination === '/studio' ? 'expert' : 'customer',
+        });
         setMode('verify');
         setNotice('Check your email for a verification code.');
       } else if (mode === 'verify') {
@@ -1605,6 +1623,24 @@ function AuthPage() {
               {error && <Alert>{error}</Alert>}
               {notice && <Alert kind="success">{notice}</Alert>}
               <form onSubmit={submit}>
+                {mode === 'register' && (
+                  <Field label="I want to">
+                    <select
+                      className="form-select"
+                      aria-label="Account purpose"
+                      value={destination === '/studio' ? 'expert' : 'customer'}
+                      onChange={(event) => {
+                        const next = new URLSearchParams(searchParams);
+                        if (event.target.value === 'expert') next.set('next', '/studio');
+                        else next.delete('next');
+                        setSearchParams(next, { replace: true });
+                      }}
+                    >
+                      <option value="customer">Find and book an expert</option>
+                      <option value="expert">Become an expert and offer sessions</option>
+                    </select>
+                  </Field>
+                )}
                 {mode === 'register' && (
                   <Field label="Your name">
                     <input
@@ -1788,10 +1824,22 @@ function AuthPage() {
 
 function Dashboard() {
   const { user } = useContext(Auth);
-  const [scope, setScope] = useState('customer'),
+  const [dashboardParams] = useSearchParams();
+  const expertIntent = user?.roles.includes('expert') || user?.accountPurpose === 'expert';
+  const [scope, setScope] = useState(
+      dashboardParams.get('scope') === 'customer'
+        ? 'customer'
+        : expertIntent
+          ? 'expert'
+          : 'customer',
+    ),
     [page, setPage] = useState(1),
     [error, setError] = useState('');
-  const bookings = useData(`/bookings?scope=${scope}&page=${page}`),
+  const bookings = useData(
+      scope === 'expert' && !user?.roles.includes('expert')
+        ? null
+        : `/bookings?scope=${scope}&page=${page}`,
+    ),
     config = useData('/config');
   async function action(id: string, action: string) {
     setError('');
@@ -1807,7 +1855,9 @@ function Dashboard() {
       <section className="booking-welcome">
         <div className="container d-flex align-items-center gap-4 flex-wrap flex-lg-nowrap">
           <div className="booking-greeting flex-grow-1">
-            <span className="booking-kicker">YOUR PERSONAL SPACE</span>
+            <span className="booking-kicker">
+              {scope === 'expert' ? 'YOUR EXPERT DASHBOARD' : 'YOUR PERSONAL SPACE'}
+            </span>
             <h1>Good to see you, {user?.name.split(' ')[0]}.</h1>
             <p>Keep track of your bookings, appointments and next steps in one place.</p>
           </div>
@@ -1817,10 +1867,17 @@ function Dashboard() {
               <CalendarDays size={30} />
             </span>
             <div>
-              <h2>Find an expert</h2>
-              <p>Explore our experts and book your next session.</p>
-              <Link className="btn btn-primary btn-sm" to="/#experts">
-                Find an expert <ArrowRight size={15} />
+              <h2>{scope === 'expert' ? 'Your Expert Studio' : 'Find an expert'}</h2>
+              <p>
+                {scope === 'expert'
+                  ? 'Manage your profile, services and available times.'
+                  : 'Explore our experts and book your next session.'}
+              </p>
+              <Link
+                className="btn btn-primary btn-sm"
+                to={scope === 'expert' ? '/studio' : '/#experts'}
+              >
+                {scope === 'expert' ? 'Open studio' : 'Find an expert'} <ArrowRight size={15} />
               </Link>
             </div>
           </aside>
@@ -1838,7 +1895,7 @@ function Dashboard() {
           >
             <CalendarDays size={21} /> My bookings
           </button>
-          {user?.roles.includes('expert') && (
+          {expertIntent && (
             <button
               className={scope === 'expert' ? 'active' : ''}
               aria-pressed={scope === 'expert'}
@@ -1859,6 +1916,7 @@ function Dashboard() {
         </nav>
       </div>
       <div className="container booking-content">
+        {scope === 'expert' && <ExpertDashboardOverview />}
         {config.data?.checkoutEnabled === false && (
           <div className="booking-payment-notice" role="status">
             <CircleHelp size={22} />
@@ -1946,6 +2004,171 @@ function Dashboard() {
         <Pager page={page} setPage={setPage} total={bookings.data?.total ?? 0} />
       </div>
     </div>
+  );
+}
+function ExpertDashboardOverview() {
+  type Overview = {
+    profile: {
+      slug: string;
+      headline: string;
+      bio: string;
+      city: string;
+      languages: string[];
+      timezone: string;
+      experienceYears: number;
+      verification: string;
+      reviewReason?: string;
+    } | null;
+    onboarding: {
+      emailVerified: boolean;
+      profileSubmitted: boolean;
+      verification: string;
+      activeServices: number;
+      openSlots: number;
+      listed: boolean;
+      acceptingReservations: boolean;
+      publicPath: string | null;
+    };
+    stats: {
+      upcomingAppointments: number;
+      pendingRequests: number;
+      completedSessions: number;
+      heldReservations: number;
+    };
+  };
+  const { user } = useContext(Auth);
+  const summary = useData<Overview>('/expert/dashboard');
+  useEffect(() => {
+    const onFocus = () => summary.reload();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+  if (summary.loading && !summary.data) return <Loader />;
+  if (summary.error)
+    return (
+      <Alert>
+        {summary.error}{' '}
+        <button type="button" className="btn btn-link" onClick={summary.reload}>
+          Retry expert dashboard
+        </button>
+      </Alert>
+    );
+  const d = summary.data;
+  if (!d?.onboarding || !d.stats)
+    return <Alert>Expert dashboard is unavailable. Refresh to try again.</Alert>;
+  const state: Record<string, { title: string; description: string }> = {
+    not_started: {
+      title: 'Complete your expert profile',
+      description:
+        'Tell customers about your experience, then submit your application for admin review.',
+    },
+    pending: {
+      title: 'Your application is under review',
+      description:
+        'Your profile is saved. You can add services and availability while the marketplace team reviews it.',
+    },
+    rejected: {
+      title: 'Your application needs an update',
+      description: 'Read the review note, edit your profile and submit it again.',
+    },
+    suspended: {
+      title: 'Your expert profile is suspended',
+      description: 'Your listing is hidden. Contact the marketplace team for help.',
+    },
+    approved: {
+      title: d.onboarding.listed
+        ? 'Your expert profile is published'
+        : 'You are approved - finish your listing',
+      description: d.onboarding.acceptingReservations
+        ? 'Customers can view your services and available times. Payments remain subject to the platform payment settings.'
+        : d.onboarding.listed
+          ? 'Your profile is visible. Add future available times so customers can reserve a session.'
+          : 'Add an active service in an active category to publish your profile.',
+    },
+  };
+  const status = state[d.onboarding.verification] ?? state.not_started;
+  return (
+    <section className="expert-dashboard-overview" aria-label="Your expert overview">
+      <div className="expert-dashboard-status">
+        <div>
+          <p className="studio-eyebrow">YOUR APPLICATION RESULT</p>
+          <h2>{status.title}</h2>
+          <p>{status.description}</p>
+          {d.profile?.reviewReason && (
+            <p className="expert-review-note">
+              <strong>Latest review note:</strong> {d.profile.reviewReason}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn btn-outline-secondary"
+          disabled={summary.loading}
+          onClick={summary.reload}
+        >
+          Refresh expert status
+        </button>
+      </div>
+      <div className="expert-dashboard-metrics">
+        {[
+          ['Active services', d.onboarding.activeServices],
+          ['Available times', d.onboarding.openSlots],
+          ['Upcoming appointments', d.stats.upcomingAppointments],
+          ['Requests to review', d.stats.pendingRequests],
+          ['Completed sessions', d.stats.completedSessions],
+          ['Temporary holds', d.stats.heldReservations],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+      {d.profile && (
+        <article className="expert-dashboard-profile">
+          <div>
+            <span className={`badge ${statusColor(d.profile.verification)}`}>
+              {d.profile.verification}
+            </span>
+            <h3>{user?.name}</h3>
+            <h4>{d.profile.headline}</h4>
+            <p className="preserve">{d.profile.bio}</p>
+            <p className="admin-muted">
+              {d.profile.city} / {d.profile.experienceYears} years experience /{' '}
+              {d.profile.languages?.join(', ')} / {d.profile.timezone}
+            </p>
+            <small>
+              {d.onboarding.listed
+                ? 'This is your saved, published profile.'
+                : 'This is your saved application. It is not publicly listed yet.'}
+            </small>
+          </div>
+        </article>
+      )}
+      <nav className="d-flex flex-wrap gap-2" aria-label="Expert next steps">
+        <Link className="btn btn-primary" to="/studio?section=profile">
+          {d.profile ? 'Edit profile' : 'Complete profile'}
+        </Link>
+        {d.profile && (
+          <>
+            <Link className="btn btn-outline-primary" to="/studio?section=services">
+              Manage services
+            </Link>
+            <Link className="btn btn-outline-primary" to="/studio?section=availability">
+              Set availability
+            </Link>
+            <Link className="btn btn-outline-secondary" to="/studio?section=earnings">
+              View earnings
+            </Link>
+          </>
+        )}
+        {d.onboarding.publicPath && (
+          <Link className="btn btn-outline-primary" to={d.onboarding.publicPath}>
+            View published profile
+          </Link>
+        )}
+      </nav>
+    </section>
   );
 }
 function CalendarIllustration({ search = false }: { search?: boolean }) {
@@ -2184,8 +2407,19 @@ function CategorySelect({
 function Studio() {
   const { refresh, user } = useContext(Auth),
     profile = useData('/expert/profile');
-  const [tab, setTab] = useState('profile'),
-    [notice, setNotice] = useState(''),
+  const [studioParams, setStudioParams] = useSearchParams();
+  const requestedTab = ['profile', 'services', 'availability', 'earnings'].includes(
+    studioParams.get('section') ?? '',
+  )
+    ? studioParams.get('section')!
+    : 'profile';
+  const tab = profile.data ? requestedTab : 'profile';
+  const setTab = (section: string) => {
+    const next = new URLSearchParams(studioParams);
+    next.set('section', section);
+    setStudioParams(next);
+  };
+  const [notice, setNotice] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   async function save(e: FormEvent<HTMLFormElement>, categories: string[]) {
@@ -2337,7 +2571,7 @@ function Studio() {
                 <span>{label}</span>
               </button>
             ))}
-            <Link className="studio-appointments ms-md-auto" to="/dashboard">
+            <Link className="studio-appointments ms-md-auto" to="/dashboard?scope=expert">
               Manage Appointments <ArrowRight size={15} />
             </Link>
           </nav>
@@ -2345,7 +2579,23 @@ function Studio() {
             className={`studio-content ${tab === 'services' || tab === 'availability' ? 'studio-services-content' : ''}`}
           >
             {error && <Alert>{error}</Alert>}
-            {notice && <Alert kind="success">{notice}</Alert>}
+            {notice && (
+              <>
+                <Alert kind="success">{notice}</Alert>
+                <div className="d-flex flex-wrap gap-2 mb-3">
+                  <Link className="btn btn-primary" to="/dashboard?scope=expert">
+                    View expert dashboard
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    onClick={() => setTab('services')}
+                  >
+                    Next: add a service
+                  </button>
+                </div>
+              </>
+            )}
             {profile.loading ? (
               <Loader />
             ) : profile.error ? (

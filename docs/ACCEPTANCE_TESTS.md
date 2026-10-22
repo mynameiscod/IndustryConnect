@@ -93,3 +93,12 @@ Email delivery reporting acceptance:
 - SEND/OPEN alone cannot set delivered. AWS DELIVERY can; bounce/complaint/rejection take precedence. Incomplete later results or missing permissions cannot erase recorded delivery events.
 - Reporting-unavailable states identify VDM/IAM setup. SMTP never claims final delivery. History is paginated, newest first, with thirty-day TTL retention.
 - Automated SES events are simulated; real AWS delivery receipt needs external validation and permissions. Prior messages without captured IDs have no reconstructed reports.
+
+
+Connected expert signup/dashboard acceptance (22 October 2026):
+- Create account includes customer/expert purpose. Expert choice survives email verification and directs the user to Studio. Persisted purpose is intent only; registration does not grant expert/admin role or approval.
+- Returning expert applicants see an expert dashboard even before profile creation, with resume-profile action and genuine zero counts; no unauthorized expert-bookings request is made.
+- Submitting profile exposes View expert dashboard and next-service actions. Dashboard shows the actual saved profile, pending/rejected/suspended/approved result and latest review note.
+- Approved experts with active services see published-profile link; future open slots and booking counts are actual stored data. Held reservations never count as confirmed appointments.
+- Expert dashboard defaults to expert appointments; customer bookings remain a separate view. Studio links open the intended services/availability/earnings section. Deep links before profile creation fall back to the profile form.
+- Full API journey: register/verify, submit, dashboard pending, service + slot creation, admin review, dashboard published/public discovery, customer reservation, own expert bookings/hold count. Another account sees no profile or counters from this expert.

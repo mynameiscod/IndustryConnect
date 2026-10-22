@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { expertInput } from '@market/contracts';
-import { Expert, User, Category, Service, Slot, Audit } from './models.js';
+import { Expert, User, Category, Service, Slot, Audit, Booking } from './models.js';
 import { assert } from './providers.js';
 import { enqueue } from './marketplace.js';
 
@@ -45,7 +45,11 @@ export async function submitExpert(userId: mongoose.Types.ObjectId, body: unknow
       expert.profileRevision = (expert.profileRevision ?? 0) + 1;
     }
     await expert.save({ session });
-    await User.updateOne({ _id: userId }, { $addToSet: { roles: 'expert' } }, { session });
+    await User.updateOne(
+      { _id: userId },
+      { $addToSet: { roles: 'expert' }, $set: { accountPurpose: 'expert' } },
+      { session },
+    );
     await Audit.create(
       [
         {
@@ -148,5 +152,36 @@ export async function expertReadiness(userId: mongoose.Types.ObjectId) {
     listed: !!user?.active && approved && services.length > 0,
     acceptingReservations: !!user?.active && approved && services.length > 0 && futureSlots > 0,
     publicPath: approved && services.length ? `/experts/${expert!.slug}` : null,
+  };
+}
+export async function expertDashboard(userId: mongoose.Types.ObjectId) {
+  const onboarding = await expertReadiness(userId);
+  const profile = await Expert.findOne({ userId }).select(
+    'slug headline bio city languages timezone experienceYears verification reviewReason profileRevision updatedAt',
+  );
+  if (!profile)
+    return {
+      onboarding,
+      profile: null,
+      stats: {
+        upcomingAppointments: 0,
+        pendingRequests: 0,
+        completedSessions: 0,
+        heldReservations: 0,
+      },
+    };
+  const filter = { expertId: profile._id };
+  const now = new Date();
+  const [upcomingAppointments, pendingRequests, completedSessions, heldReservations] =
+    await Promise.all([
+      Booking.countDocuments({ ...filter, status: 'confirmed', endsAt: { $gt: now } }),
+      Booking.countDocuments({ ...filter, status: 'pending_confirmation' }),
+      Booking.countDocuments({ ...filter, status: 'completed' }),
+      Booking.countDocuments({ ...filter, status: 'held', holdUntil: { $gt: now } }),
+    ]);
+  return {
+    onboarding,
+    profile,
+    stats: { upcomingAppointments, pendingRequests, completedSessions, heldReservations },
   };
 }

@@ -30,6 +30,7 @@ export const publicUser = (u: any) => ({
   email: u.email,
   emailVerified: u.emailVerified,
   roles: u.roles,
+  accountPurpose: u.roles?.includes('expert') ? 'expert' : (u.accountPurpose ?? 'customer'),
 });
 export async function checkInvite(c: Config, email?: string | null) {
   if (c.BETA_ACCESS_MODE === 'invite')

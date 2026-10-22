@@ -21,7 +21,7 @@ import {
 } from '@market/contracts';
 import { paymentBlockers, type Config } from './config.js';
 import { expertEarnings } from './earnings.js';
-import { submitExpert, reviewExpert, expertReadiness } from './onboarding.js';
+import { submitExpert, reviewExpert, expertReadiness, expertDashboard } from './onboarding.js';
 import { AppError, assert, type Providers, verifyHmac } from './providers.js';
 import { createRuntimeProviders } from './provider-runtime.js';
 import { sendWhatsAppTest } from './whatsapp.js';
@@ -252,6 +252,7 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
       await User.create({
         name: data.name,
         email: data.email,
+        accountPurpose: data.accountPurpose,
         passwordHash: await hashPassword(data.password),
       });
     }
@@ -548,6 +549,9 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   app.get('/api/expert/profile', requireUser, async (_req, res) => {
     res.json(await Expert.findOne({ userId: res.locals.user._id }));
   });
+  app.get('/api/expert/dashboard', requireUser, async (_req, res) =>
+    res.json(await expertDashboard(res.locals.user._id)),
+  );
   app.get('/api/expert/onboarding', requireUser, async (_req, res) =>
     res.json(await expertReadiness(res.locals.user._id)),
   );

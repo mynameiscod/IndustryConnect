@@ -13,6 +13,7 @@ const user = new Schema(
     googleSub: { type: String, unique: true, sparse: true },
     passwordHash: String,
     roles: { type: [String], default: ['customer'] },
+    accountPurpose: { type: String, enum: ['customer', 'expert'], default: 'customer' },
     emailVerified: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
   },

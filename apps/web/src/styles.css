@@ -5062,3 +5062,76 @@ body {
     text-align: left;
   }
 }
+.expert-dashboard-overview {
+  background: #fff;
+  border: 1px solid #e1e8e4;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.expert-dashboard-status {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.expert-dashboard-status h2 {
+  font-size: 1.5rem;
+}
+.expert-dashboard-status p {
+  max-width: 52rem;
+}
+.expert-dashboard-status button {
+  flex-shrink: 0;
+}
+.expert-dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.expert-dashboard-metrics > div {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1rem;
+  background: #f3f8f6;
+  border: 1px solid #e5ede9;
+  border-radius: 0.75rem;
+}
+.expert-dashboard-metrics span {
+  font-size: 0.85rem;
+  color: #66788a;
+}
+.expert-dashboard-metrics strong {
+  font-size: 1.6rem;
+  color: #143d31;
+}
+.expert-dashboard-profile {
+  border-top: 1px solid #e4e9ed;
+  padding: 1.25rem 0;
+  margin-top: 1rem;
+  overflow-wrap: anywhere;
+}
+.expert-dashboard-profile h3 {
+  margin-top: 0.75rem;
+  font-size: 1.2rem;
+}
+.expert-dashboard-profile h4 {
+  font-size: 1rem;
+  color: #526174;
+}
+.expert-review-note {
+  border-left: 3px solid #ff6739;
+  padding-left: 0.75rem;
+}
+@media (max-width: 767px) {
+  .expert-dashboard-overview {
+    padding: 1rem;
+  }
+  .expert-dashboard-status {
+    flex-direction: column;
+  }
+  .expert-dashboard-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
