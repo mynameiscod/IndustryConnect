@@ -48,6 +48,63 @@ afterEach(() => {
   }
 });
 describe('encrypted admin integration configuration', () => {
+  it('supports SES, requires paired credentials and keeps staged Razorpay out of runtime', () => {
+    const c = config();
+    const update = (provider: string, revision: number, fields: Record<string, string>) =>
+      parseIntegrationUpdate(provider, {
+        revision,
+        enabled: true,
+        fields,
+        password: 'admin-password',
+      });
+    expect(() =>
+      saveIntegration(
+        c,
+        'email',
+        update('email', 0, {
+          EMAIL_PROVIDER: 'ses',
+          SES_REGION: 'ap-south-1',
+          EMAIL_FROM: 'sender@example.invalid',
+          SES_ACCESS_KEY_ID: 'test-access',
+        }),
+      ),
+    ).toThrow(/required/);
+    saveIntegration(
+      c,
+      'email',
+      update('email', 0, {
+        EMAIL_PROVIDER: 'ses',
+        SES_REGION: 'ap-south-1',
+        EMAIL_FROM: 'sender@example.invalid',
+        SES_ACCESS_KEY_ID: 'test-access',
+        SES_SECRET_ACCESS_KEY: 'test-secret',
+        SES_CONFIGURATION_SET: 'industryconnect-events',
+      }),
+    );
+    expect(effectiveProviderConfig(c).EMAIL_PROVIDER).toBe('ses');
+    expect(effectiveProviderConfig(c).SES_SECRET_ACCESS_KEY).toBe('test-secret');
+    saveIntegration(
+      c,
+      'razorpay',
+      update('razorpay', 1, {
+        RAZORPAY_KEY_ID: 'rzp_test_staged',
+        RAZORPAY_KEY_SECRET: 'staged-secret',
+        RAZORPAY_WEBHOOK_SECRET: 'staged-webhook',
+      }),
+    );
+    expect(effectiveProviderConfig(c).RAZORPAY_KEY_SECRET).toBe(c.RAZORPAY_KEY_SECRET);
+    expect(effectiveProviderConfig(c).PAYMENTS_MODE).toBe(c.PAYMENTS_MODE);
+    expect(JSON.stringify(integrationMetadata(c))).not.toContain('staged-secret');
+    expect(JSON.stringify(integrationMetadata(c))).not.toContain('test-access');
+    expect(() =>
+      parseIntegrationUpdate('razorpay', {
+        revision: 2,
+        enabled: true,
+        fields: { PAYMENTS_MODE: 'live' },
+        password: 'admin-password',
+      }),
+    ).toThrow();
+  });
   it('encrypts secrets, returns presence only and exposes saved settings across config instances', () => {
     const c = config();
     const body = parseIntegrationUpdate('email', {

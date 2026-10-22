@@ -5775,7 +5775,7 @@
         "tags": [
           "admin"
         ],
-        "description": "Requires admin permission and resource ownership where applicable. Provider IDs: email, google, calendar, phone. Secret values are always empty strings; configured flags indicate presence only, not external validation.",
+        "description": "Requires admin permission and resource ownership where applicable. Provider IDs: email, whatsapp, razorpay, google, calendar, phone. Email supports SMTP or SES. Razorpay keys are staged only. Secret values are always empty strings; configured flags indicate presence only, not external validation.",
         "security": [
           {
             "Session": []
@@ -5883,7 +5883,7 @@
         "tags": [
           "admin"
         ],
-        "description": "Requires admin permission and resource ownership where applicable. Requires current admin password and matching revision. Ten update attempts per client per fifteen minutes. Field names are strictly limited by provider. Blank secrets preserve existing values; clearSecrets explicitly removes named secret fields. Enabled integrations require complete credentials. Configuration applies to API/worker operations without restart. Does not send messages, create meetings or validate external credentials. Payment settings are not accepted.",
+        "description": "Requires admin permission and resource ownership where applicable. Requires current admin password and matching revision. Ten update attempts per client per fifteen minutes. Strict provider fields. Blank secrets preserve existing values; clearSecrets removes named secrets. Enabled integrations require complete credentials. Messaging settings apply without restart. Razorpay keys are staged for operator activation, never hot-rotated; payment mode, Route and release gates cannot be changed here. Saving does not contact a provider.",
         "security": [
           {
             "Session": []
@@ -5922,6 +5922,139 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IntegrationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / invite required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, uniqueness or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider or release gate unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/integrations/{provider}/test": {
+      "post": {
+        "summary": "Send a real delivery test using saved configuration",
+        "operationId": "post__admin_integrations_provider_test",
+        "tags": [
+          "admin"
+        ],
+        "description": "Requires admin permission and resource ownership where applicable. Email or WhatsApp only. Current admin password and recipient consent required; five attempts per client per fifteen minutes. Email recipient must be an email address; WhatsApp recipient must be E.164. Sends once with no automatic retry. WhatsApp uses the approved no-variable template. Success means provider acceptance, not confirmed delivery. No payment test or payment activation.",
+        "security": [
+          {
+            "Session": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Origin"
+          },
+          {
+            "$ref": "#/components/parameters/RequestHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntegrationTest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Object"
                 }
               }
             }
@@ -8455,6 +8588,12 @@
                       "type": {
                         "type": "string"
                       },
+                      "options": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
                       "value": {
                         "type": "string"
                       },
@@ -8490,6 +8629,32 @@
           "origin",
           "providers"
         ]
+      },
+      "IntegrationTest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "writeOnly": true
+          },
+          "recipient": {
+            "type": "string",
+            "maxLength": 254
+          },
+          "consent": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "password",
+          "recipient",
+          "consent"
+        ],
+        "additionalProperties": false
       }
     },
     "securitySchemes": {

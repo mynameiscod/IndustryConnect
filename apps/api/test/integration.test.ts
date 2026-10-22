@@ -1031,6 +1031,61 @@ describe('admin provider settings authorization', () => {
       const audit = await Audit.findOne({ action: 'integration.update.requested' }).lean();
       expect(JSON.stringify(audit)).not.toContain('secret-token-for-test');
       expect(JSON.stringify(audit)).not.toContain('correct-admin-password');
+      const testBody = {
+        password: 'correct-admin-password',
+        recipient: 'recipient@example.invalid',
+        consent: true,
+      };
+      expect(
+        (
+          await request(configured)
+            .post('/api/admin/integrations/email/test')
+            .set(headers)
+            .set('Cookie', 'market_session=customer')
+            .send(testBody)
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request(configured)
+            .post('/api/admin/integrations/email/test')
+            .set(headers)
+            .set('Cookie', 'market_session=admin')
+            .send({ ...testBody, password: 'wrong' })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request(configured)
+            .post('/api/admin/integrations/email/test')
+            .set(headers)
+            .set('Cookie', 'market_session=admin')
+            .send({ ...testBody, consent: false })
+        ).status,
+      ).toBe(400);
+      const emailSaved = await request(configured)
+        .put('/api/admin/integrations/email')
+        .set(headers)
+        .set('Cookie', 'market_session=admin')
+        .send({
+          revision: 1,
+          enabled: true,
+          fields: {
+            EMAIL_PROVIDER: 'ses',
+            SES_REGION: 'ap-south-1',
+            EMAIL_FROM: 'sender@example.invalid',
+          },
+          password: testBody.password,
+        });
+      expect(emailSaved.status).toBe(200);
+      expect((await request(configured).get('/api/config')).body.emailEnabled).toBe(true);
+      const sent = await request(configured)
+        .post('/api/admin/integrations/email/test')
+        .set(headers)
+        .set('Cookie', 'market_session=admin')
+        .send(testBody);
+      expect(sent.status).toBe(200);
+      expect(sent.body).toMatchObject({ accepted: true });
       expect(
         (
           await request(configured)

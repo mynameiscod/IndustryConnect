@@ -626,6 +626,7 @@ schemas.IntegrationStatus = json(
             label: z.string(),
             secret: z.boolean(),
             type: z.string(),
+            options: z.array(z.string()).optional(),
             value: z.string(),
             configured: z.boolean(),
           }),
@@ -642,7 +643,7 @@ add(
   undefined,
   'IntegrationStatus',
   200,
-  'Provider IDs: email, google, calendar, phone. Secret values are always empty strings; configured flags indicate presence only, not external validation.',
+  'Provider IDs: email, whatsapp, razorpay, google, calendar, phone. Email supports SMTP or SES. Razorpay keys are staged only. Secret values are always empty strings; configured flags indicate presence only, not external validation.',
 );
 add(
   'put',
@@ -652,7 +653,27 @@ add(
   'IntegrationUpdate',
   'IntegrationStatus',
   200,
-  'Requires current admin password and matching revision. Ten update attempts per client per fifteen minutes. Field names are strictly limited by provider. Blank secrets preserve existing values; clearSecrets explicitly removes named secret fields. Enabled integrations require complete credentials. Configuration applies to API/worker operations without restart. Does not send messages, create meetings or validate external credentials. Payment settings are not accepted.',
+  'Requires current admin password and matching revision. Ten update attempts per client per fifteen minutes. Strict provider fields. Blank secrets preserve existing values; clearSecrets removes named secrets. Enabled integrations require complete credentials. Messaging settings apply without restart. Razorpay keys are staged for operator activation, never hot-rotated; payment mode, Route and release gates cannot be changed here. Saving does not contact a provider.',
+);
+schemas.IntegrationTest = json(
+  z
+    .object({
+      password: z.string().min(1).max(256),
+      recipient: z.string().max(254),
+      consent: z.literal(true),
+    })
+    .strict(),
+);
+schemas.IntegrationTest.properties.password.writeOnly = true;
+add(
+  'post',
+  '/admin/integrations/{provider}/test',
+  'Send a real delivery test using saved configuration',
+  'admin',
+  'IntegrationTest',
+  'Object',
+  200,
+  'Email or WhatsApp only. Current admin password and recipient consent required; five attempts per client per fifteen minutes. Email recipient must be an email address; WhatsApp recipient must be E.164. Sends once with no automatic retry. WhatsApp uses the approved no-variable template. Success means provider acceptance, not confirmed delivery. No payment test or payment activation.',
 );
 add('get', '/admin/settings', 'Read policy defaults', 'admin');
 add(

@@ -18,15 +18,39 @@ type Field = {
   label: string;
   secret?: boolean;
   type?: string;
+  options?: string[];
   schema: z.ZodType;
 };
 type Definition = { title: string; help: string; fields: Field[]; required: string[] };
 export const integrationDefinitions: Record<string, Definition> = {
   email: {
     title: 'Email delivery',
-    help: 'Use SMTP credentials from your email provider. Verification, password reset and booking emails use this sender. Saving does not send a message.',
-    required: ['SMTP_HOST', 'EMAIL_FROM'],
+    help: 'Choose SMTP or Amazon SES. SES region must match your verified sender identity. Grant ses:SendEmail; sandbox accounts can send only to verified recipients. Optional configuration sets publish delivery events when configured in AWS. Saving does not send email.',
+    required: ['EMAIL_FROM'],
     fields: [
+      {
+        key: 'EMAIL_PROVIDER',
+        label: 'Email provider',
+        options: ['smtp', 'ses'],
+        schema: z.enum(['smtp', 'ses']),
+      },
+      {
+        key: 'SES_REGION',
+        label: 'SES region',
+        schema: z.union([z.string().regex(/^[a-z]{2}(?:-[a-z]+)+-\d$/), z.literal('')]),
+      },
+      { key: 'SES_ACCESS_KEY_ID', label: 'SES access key ID', secret: true, schema: text },
+      {
+        key: 'SES_SECRET_ACCESS_KEY',
+        label: 'SES secret access key',
+        secret: true,
+        schema: z.string().max(4096),
+      },
+      {
+        key: 'SES_CONFIGURATION_SET',
+        label: 'SES configuration set (optional)',
+        schema: z.union([z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), z.literal('')]),
+      },
       {
         key: 'SMTP_HOST',
         label: 'SMTP host',
@@ -52,6 +76,74 @@ export const integrationDefinitions: Record<string, Definition> = {
         label: 'Sender email address',
         type: 'email',
         schema: z.union([z.email(), z.literal('')]),
+      },
+    ],
+  },
+  whatsapp: {
+    title: 'WhatsApp messaging',
+    help: 'Use a dedicated Meta WhatsApp Cloud API sender and system-user access token. Enter an API version supported by your Meta app and an approved template with no variables for the test message. Send only to recipients who opted in. This configures manual test delivery; automatic booking WhatsApp notifications are not enabled.',
+    required: [
+      'WHATSAPP_API_VERSION',
+      'WHATSAPP_PHONE_NUMBER_ID',
+      'WHATSAPP_ACCESS_TOKEN',
+      'WHATSAPP_TEMPLATE_NAME',
+      'WHATSAPP_TEMPLATE_LANGUAGE',
+    ],
+    fields: [
+      {
+        key: 'WHATSAPP_API_VERSION',
+        label: 'Meta Graph API version (e.g. v23.0)',
+        schema: z.union([z.string().regex(/^v\d{2}\.0$/), z.literal('')]),
+      },
+      {
+        key: 'WHATSAPP_PHONE_NUMBER_ID',
+        label: 'WhatsApp phone number ID',
+        schema: z.union([z.string().regex(/^\d{5,30}$/), z.literal('')]),
+      },
+      {
+        key: 'WHATSAPP_BUSINESS_ACCOUNT_ID',
+        label: 'WhatsApp business account ID (optional)',
+        schema: z.union([z.string().regex(/^\d{5,30}$/), z.literal('')]),
+      },
+      {
+        key: 'WHATSAPP_ACCESS_TOKEN',
+        label: 'Meta access token',
+        secret: true,
+        schema: z.string().max(4096),
+      },
+      {
+        key: 'WHATSAPP_TEMPLATE_NAME',
+        label: 'Approved test template name (no variables)',
+        schema: z.union([z.string().regex(/^[a-z0-9_]{1,512}$/), z.literal('')]),
+      },
+      {
+        key: 'WHATSAPP_TEMPLATE_LANGUAGE',
+        label: 'Template language code',
+        schema: z.union([z.string().regex(/^[a-z]{2,3}(?:_[A-Z]{2})?$/), z.literal('')]),
+      },
+    ],
+  },
+  razorpay: {
+    title: 'Razorpay payments',
+    help: 'Save gateway credentials securely for operator activation. These staged keys do not replace the running payment credentials or enable checkout. Rotation requires reconciliation of outstanding orders and an operator deployment. Live payments and Route remain locked by release controls.',
+    required: ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'],
+    fields: [
+      {
+        key: 'RAZORPAY_KEY_ID',
+        label: 'Razorpay key ID',
+        schema: z.union([z.string().regex(/^rzp_(test|live)_[a-zA-Z0-9]+$/), z.literal('')]),
+      },
+      {
+        key: 'RAZORPAY_KEY_SECRET',
+        label: 'Razorpay key secret',
+        secret: true,
+        schema: z.string().max(4096),
+      },
+      {
+        key: 'RAZORPAY_WEBHOOK_SECRET',
+        label: 'Razorpay webhook secret',
+        secret: true,
+        schema: z.string().max(4096),
       },
     ],
   },
@@ -191,21 +283,27 @@ function valuesFor(c: Config, doc: Document, provider: string) {
 function complete(provider: string, values: Record<string, string | number>) {
   return (
     integrationDefinitions[provider].required.every((key) => !!values[key]) &&
-    (provider !== 'email' || !values.SMTP_USER || !!values.SMTP_PASSWORD)
+    (provider !== 'email' ||
+      (values.EMAIL_PROVIDER === 'ses'
+        ? !!values.SES_REGION && !!values.SES_ACCESS_KEY_ID === !!values.SES_SECRET_ACCESS_KEY
+        : !!values.SMTP_HOST && (!values.SMTP_USER || !!values.SMTP_PASSWORD)))
   );
 }
 export function effectiveProviderConfig(c: Config): Config {
   const doc = readDocument(c),
     result = { ...c };
   for (const [provider, definition] of Object.entries(integrationDefinitions)) {
+    if (provider === 'razorpay') continue; // Staged only: never hot-rotate in-flight payment credentials.
     const values = valuesFor(c, doc, provider);
     const enabled = doc.groups[provider]?.enabled ?? complete(provider, values);
     for (const f of definition.fields)
       (result as unknown as Record<string, string | number>)[f.key] = enabled
         ? values[f.key]
-        : f.key === 'SMTP_PORT'
-          ? 587
-          : '';
+        : f.key === 'EMAIL_PROVIDER'
+          ? 'smtp'
+          : f.key === 'SMTP_PORT'
+            ? 587
+            : '';
   }
   return result;
 }
@@ -229,6 +327,7 @@ export function integrationMetadata(c: Config) {
           label: f.label,
           secret: !!f.secret,
           type: f.type ?? 'text',
+          options: f.options,
           value: f.secret ? '' : String(values[f.key] ?? ''),
           configured: !!values[f.key],
         })),

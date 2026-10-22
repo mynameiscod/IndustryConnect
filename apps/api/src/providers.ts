@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import nodemailer from 'nodemailer';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import type { Config } from './config.js';
 
 export interface ProviderPayment {
@@ -214,6 +215,48 @@ export function createProviders(c: Config): Providers {
       );
     },
     sendEmail: async (to, subject, text) => {
+      if (c.EMAIL_PROVIDER === 'ses') {
+        assert(
+          c.SES_REGION && c.EMAIL_FROM,
+          503,
+          'EMAIL_UNAVAILABLE',
+          'Amazon SES is not configured',
+        );
+        const client = new SESv2Client({
+          region: c.SES_REGION,
+          credentials:
+            c.SES_ACCESS_KEY_ID && c.SES_SECRET_ACCESS_KEY
+              ? { accessKeyId: c.SES_ACCESS_KEY_ID, secretAccessKey: c.SES_SECRET_ACCESS_KEY }
+              : undefined,
+          maxAttempts: 1,
+          requestHandler: { requestTimeout: 15000, connectionTimeout: 5000 },
+        });
+        try {
+          const result = await client.send(
+            new SendEmailCommand({
+              FromEmailAddress: c.EMAIL_FROM,
+              Destination: { ToAddresses: [to] },
+              Content: {
+                Simple: {
+                  Subject: { Data: subject, Charset: 'UTF-8' },
+                  Body: { Text: { Data: text, Charset: 'UTF-8' } },
+                },
+              },
+              ...(c.SES_CONFIGURATION_SET ? { ConfigurationSetName: c.SES_CONFIGURATION_SET } : {}),
+            }),
+          );
+          assert(result.MessageId, 502, 'EMAIL_ERROR', 'SES did not acknowledge the message');
+        } catch {
+          throw new AppError(
+            502,
+            'EMAIL_ERROR',
+            'SES delivery request failed; check region, sender identity, permissions and sandbox restrictions',
+          );
+        } finally {
+          client.destroy();
+        }
+        return;
+      }
       assert(
         c.SMTP_HOST && c.EMAIL_FROM,
         503,

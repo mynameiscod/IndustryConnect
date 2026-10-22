@@ -24,6 +24,7 @@ import { paymentBlockers, type Config } from './config.js';
 import { expertEarnings } from './earnings.js';
 import { AppError, assert, type Providers, verifyHmac } from './providers.js';
 import { createRuntimeProviders } from './provider-runtime.js';
+import { sendWhatsAppTest } from './whatsapp.js';
 import {
   effectiveProviderConfig,
   integrationMetadata,
@@ -229,7 +230,12 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
         providerConfig.TWILIO_ACCOUNT_SID &&
         providerConfig.TWILIO_AUTH_TOKEN
       ),
-      emailEnabled: !!(providerConfig.SMTP_HOST && providerConfig.EMAIL_FROM),
+      emailEnabled: !!(
+        providerConfig.EMAIL_FROM &&
+        (providerConfig.EMAIL_PROVIDER === 'ses'
+          ? providerConfig.SES_REGION
+          : providerConfig.SMTP_HOST)
+      ),
       betaAccess: c.BETA_ACCESS_MODE,
       paymentMode: c.PAYMENTS_MODE,
       checkoutEnabled: paymentBlockers(c).length === 0,
@@ -887,6 +893,54 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   });
   app.get('/api/admin/settings', async (_req, res) => res.json(await ensureSettings()));
   app.get('/api/admin/integrations', (_req, res) => res.json(integrationMetadata(c)));
+  app.post(
+    '/api/admin/integrations/:provider/test',
+    rateLimit({ windowMs: 15 * 60000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false }),
+    async (req, res) => {
+      const provider = String(req.params.provider);
+      assert(
+        provider === 'email' || provider === 'whatsapp',
+        404,
+        'NOT_FOUND',
+        'This provider has no delivery test',
+      );
+      const data = z
+        .object({
+          password: z.string().min(1).max(256),
+          recipient: provider === 'email' ? z.email() : z.string().regex(/^\+[1-9]\d{7,14}$/),
+          consent: z.literal(true),
+        })
+        .strict()
+        .parse(req.body);
+      assert(
+        await checkPassword(data.password, res.locals.user.passwordHash),
+        403,
+        'REAUTH_REQUIRED',
+        'Confirm your current admin password',
+      );
+      const snapshot = effectiveProviderConfig(c);
+      assert(
+        integrationMetadata(c).providers.find((item) => item.id === provider)?.configured,
+        503,
+        'CONFIG_INCOMPLETE',
+        'Save and enable this provider before testing',
+      );
+      // Record intent before the external side effect; never retry a test automatically.
+      await audit(res.locals.user._id, 'integration.test.requested', provider);
+      if (provider === 'email')
+        await p.sendEmail(
+          data.recipient,
+          'IndustryConnect delivery test',
+          'This is the delivery test requested by your IndustryConnect administrator.',
+        );
+      else await sendWhatsAppTest(snapshot, data.recipient);
+      res.json({
+        accepted: true,
+        message:
+          'Provider accepted the request. Confirm receipt with the recipient; acceptance does not prove delivery.',
+      });
+    },
+  );
   app.put(
     '/api/admin/integrations/:provider',
     rateLimit({

@@ -1500,6 +1500,23 @@ describe('admin provider configuration screen', () => {
           configured: true,
           fields: [
             {
+              key: 'EMAIL_PROVIDER',
+              label: 'Email provider',
+              type: 'text',
+              secret: false,
+              value: 'smtp',
+              configured: true,
+              options: ['smtp', 'ses'],
+            },
+            {
+              key: 'SES_REGION',
+              label: 'SES region',
+              type: 'text',
+              secret: false,
+              value: 'ap-south-1',
+              configured: true,
+            },
+            {
               key: 'SMTP_HOST',
               label: 'SMTP host',
               type: 'text',
@@ -1559,6 +1576,11 @@ describe('admin provider configuration screen', () => {
               ? { error: { message: 'Confirm your current admin password' } }
               : { ...settings, revision: 3 },
         } as Response;
+      if (path === '/api/admin/integrations/email/test')
+        return {
+          ok: true,
+          json: async () => ({ accepted: true, message: 'Provider accepted the request.' }),
+        } as Response;
       return fallback(url, init);
     });
     render(
@@ -1594,6 +1616,36 @@ describe('admin provider configuration screen', () => {
     expect(body.revision).toBe(2);
     expect(body.fields.SMTP_PASSWORD).toBe('');
     expect(body.password).toBe('admin-current-password');
+    expect((within(form).getByLabelText('Confirm admin password') as HTMLInputElement).value).toBe(
+      '',
+    );
+  });
+  it('switches SMTP and SES fields and requires consent and reauthentication before sending', async () => {
+    setup();
+    const form = await open();
+    fireEvent.change(within(form).getByLabelText('Email provider'), { target: { value: 'ses' } });
+    expect(within(form).getByLabelText('SES region')).toBeTruthy();
+    expect(within(form).queryByLabelText('SMTP host')).toBeNull();
+    const send = within(form).getByRole('button', { name: 'Send test email' }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    fireEvent.change(within(form).getByLabelText('Test recipient'), {
+      target: { value: 'recipient@example.invalid' },
+    });
+    fireEvent.change(within(form).getByLabelText('Confirm admin password'), {
+      target: { value: 'admin-password' },
+    });
+    expect(send.disabled).toBe(true);
+    fireEvent.click(
+      within(form).getByLabelText('I have permission to send this test to the recipient.'),
+    );
+    fireEvent.click(send);
+    await screen.findByText('Provider accepted the request.');
+    const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith('/email/test'));
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      recipient: 'recipient@example.invalid',
+      consent: true,
+      password: 'admin-password',
+    });
     expect((within(form).getByLabelText('Confirm admin password') as HTMLInputElement).value).toBe(
       '',
     );

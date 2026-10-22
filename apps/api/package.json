@@ -10,6 +10,7 @@
     "worker": "node dist/worker-main.js"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1155.0",
     "@market/contracts": "*",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.2.3",
