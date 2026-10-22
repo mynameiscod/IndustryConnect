@@ -350,9 +350,27 @@ const pages = {
 };
 add('get', '/health', 'Liveness', 'public');
 add('get', '/ready', 'Database readiness', 'public');
-add('get', '/config', 'Public provider capabilities', 'public');
+add(
+  'get',
+  '/config',
+  'Public provider capabilities',
+  'public',
+  undefined,
+  'Object',
+  200,
+  'Includes expertSignupEnabled alongside betaAccess. Expert self-registration may be open while customer signup remains invite-only. No secrets are exposed.',
+);
 add('get', '/me', 'Current user', 'user', undefined, 'User');
-add('post', '/auth/register', 'Register an invited email', 'public', 'Register', 'Object', 202);
+add(
+  'post',
+  '/auth/register',
+  'Register an account',
+  'public',
+  'Register',
+  'Object',
+  202,
+  'Customer signup follows BETA_ACCESS_MODE. When EXPERT_SIGNUP_ENABLED=true, expert-purpose accounts may register without invitation and retain access during verification/login/sessions. An explicitly revoked invitation still blocks access. Registration does not grant expert approval or admin privileges.',
+);
 add('post', '/auth/login', 'Email/password sign in', 'public', 'Login', 'User');
 add('post', '/auth/logout', 'Revoke current session', 'public', 'Empty', 'Object', 204);
 add('post', '/auth/email/request', 'Request verification code', 'public', 'Email', 'Object', 202);

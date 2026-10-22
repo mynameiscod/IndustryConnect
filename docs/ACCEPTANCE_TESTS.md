@@ -102,3 +102,6 @@ Connected expert signup/dashboard acceptance (22 October 2026):
 - Approved experts with active services see published-profile link; future open slots and booking counts are actual stored data. Held reservations never count as confirmed appointments.
 - Expert dashboard defaults to expert appointments; customer bookings remain a separate view. Studio links open the intended services/availability/earnings section. Deep links before profile creation fall back to the profile form.
 - Full API journey: register/verify, submit, dashboard pending, service + slot creation, admin review, dashboard published/public discovery, customer reservation, own expert bookings/hold count. Another account sees no profile or counters from this expert.
+
+
+Expert signup admission regression: with invite beta plus EXPERT_SIGNUP_ENABLED=true, a never-invited expert registers, verifies, signs in, submits a pending profile and uses own dashboard without creating an Invite record. Customer registration stays 403. Explicitly revoked expert loses its active session and cannot sign in. Direct /auth?mode=register&next=/studio opens the expert form with an open-registration explanation. Flag defaults false. Customer-purpose registration cannot bypass invitation gating.

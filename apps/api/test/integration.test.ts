@@ -53,6 +53,7 @@ const c = {
   PROVIDER_CONFIG_KEY: '',
   APP_ORIGIN: 'http://localhost:5173',
   BETA_ACCESS_MODE: 'open' as const,
+  EXPERT_SIGNUP_ENABLED: 'false' as const,
   RAZORPAY_WEBHOOK_SECRET: 'webhook-secret',
   RAZORPAY_KEY_SECRET: 'key-secret',
 };
@@ -161,20 +162,94 @@ beforeEach(async () => {
   f = { customer, other, admin, expertUser, expert, category, service, slot };
 });
 describe('complete expert onboarding', () => {
+  it('allows uninvited expert signup through verification, login and profile submission while customers remain gated', async () => {
+    const publicExperts = createApp(
+      { ...c, BETA_ACCESS_MODE: 'invite', EXPERT_SIGNUP_ENABLED: 'true' },
+      p,
+    );
+    const agent = request.agent(publicExperts);
+    const email = 'public-expert@example.invalid';
+    expect(
+      (
+        await request(publicExperts).post('/api/auth/register').set(headers).send({
+          name: 'Customer',
+          email: 'public-customer@example.invalid',
+          password: 'a-long-test-password-123',
+          accountPurpose: 'customer',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await agent.post('/api/auth/register').set(headers).send({
+          name: 'Public Expert',
+          email,
+          password: 'a-long-test-password-123',
+          accountPurpose: 'expert',
+        })
+      ).status,
+    ).toBe(202);
+    expect(await Invite.exists({ email })).toBeNull();
+    const code = vi.mocked(p.sendEmail).mock.calls[0][2].match(/\b\d{6}\b/)![0];
+    expect(
+      (await agent.post('/api/auth/email/verify').set(headers).send({ email, code })).status,
+    ).toBe(200);
+    expect((await agent.get('/api/me')).body).toMatchObject({
+      accountPurpose: 'expert',
+      emailVerified: true,
+      roles: ['customer'],
+    });
+    expect(
+      (
+        await agent
+          .put('/api/expert/profile')
+          .set(headers)
+          .send({
+            slug: 'public-expert-profile',
+            headline: 'Public expert professional guidance',
+            bio: 'Professional guidance from years of independent technology experience.',
+            categories: [String(f.category._id)],
+            languages: ['English'],
+            city: 'Hyderabad',
+            timezone: 'Asia/Kolkata',
+            experienceYears: 8,
+            confirmationPolicy: 'manual',
+          })
+      ).status,
+    ).toBe(200);
+    expect((await agent.get('/api/expert/dashboard')).body.onboarding.verification).toBe('pending');
+    expect((await agent.post('/api/auth/logout').set(headers).send({})).status).toBe(204);
+    expect(
+      (
+        await agent
+          .post('/api/auth/login')
+          .set(headers)
+          .send({ email, password: 'a-long-test-password-123' })
+      ).status,
+    ).toBe(200);
+    expect((await agent.get('/api/me')).status).toBe(200);
+    await Invite.create({ email, active: false });
+    expect((await agent.get('/api/me')).status).toBe(401);
+    expect(
+      (
+        await request(publicExperts)
+          .post('/api/auth/login')
+          .set(headers)
+          .send({ email, password: 'a-long-test-password-123' })
+      ).status,
+    ).toBe(403);
+  });
   it('registers and verifies a new account before accepting its expert application', async () => {
     const agent = request.agent(app);
     const email = 'new-expert@example.invalid';
     expect(
       (
-        await agent
-          .post('/api/auth/register')
-          .set(headers)
-          .send({
-            name: 'New Expert',
-            email,
-            password: 'a-long-test-password-123',
-            accountPurpose: 'expert',
-          })
+        await agent.post('/api/auth/register').set(headers).send({
+          name: 'New Expert',
+          email,
+          password: 'a-long-test-password-123',
+          accountPurpose: 'expert',
+        })
       ).status,
     ).toBe(202);
     const text = vi.mocked(p.sendEmail).mock.calls[0][2];

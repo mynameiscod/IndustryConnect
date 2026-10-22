@@ -32,14 +32,28 @@ export const publicUser = (u: any) => ({
   roles: u.roles,
   accountPurpose: u.roles?.includes('expert') ? 'expert' : (u.accountPurpose ?? 'customer'),
 });
-export async function checkInvite(c: Config, email?: string | null) {
-  if (c.BETA_ACCESS_MODE === 'invite')
-    assert(
-      email && (await Invite.exists({ email, active: true })),
-      403,
-      'INVITE_REQUIRED',
-      'This beta is invitation-only. Ask the marketplace team for access.',
-    );
+async function hasBetaAccess(c: Config, email?: string | null, newExpert = false) {
+  if (c.BETA_ACCESS_MODE === 'open') return true;
+  if (!email) return false;
+  const invite = await Invite.findOne({ email }).select('active');
+  if (invite) return invite.active; // Explicit revocation always wins over expert self-registration.
+  if (c.EXPERT_SIGNUP_ENABLED !== 'true') return false;
+  return (
+    newExpert ||
+    !!(await User.exists({
+      email,
+      active: true,
+      $or: [{ accountPurpose: 'expert' }, { roles: 'expert' }],
+    }))
+  );
+}
+export async function checkInvite(c: Config, email?: string | null, newExpert = false) {
+  assert(
+    await hasBetaAccess(c, email, newExpert),
+    403,
+    'INVITE_REQUIRED',
+    'This beta is invitation-only. Ask the marketplace team for access.',
+  );
 }
 export async function issueSession(c: Config, res: Response, userId: Types.ObjectId | string) {
   const token = randomBytes(32).toString('hex');
@@ -63,12 +77,7 @@ export function authentication(c: Config) {
       const s = await Session.findOne({ tokenHash: digest(token), expiresAt: { $gt: new Date() } });
       if (s) {
         const u = await User.findOne({ _id: s.userId, active: true });
-        if (
-          u &&
-          (c.BETA_ACCESS_MODE === 'open' ||
-            (u.email && (await Invite.exists({ email: u.email, active: true }))))
-        )
-          res.locals.user = u;
+        if (u && (await hasBetaAccess(c, u.email))) res.locals.user = u;
       }
     }
     next();

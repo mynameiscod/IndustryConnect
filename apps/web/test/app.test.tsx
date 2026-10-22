@@ -1233,6 +1233,36 @@ describe('personal booking workspace', () => {
 });
 
 describe('sign-in reference layout', () => {
+  it('opens the expert signup link directly and explains open expert registration', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) =>
+      String(url) === '/api/config'
+        ? ({
+            ok: true,
+            json: async () => ({
+              betaAccess: 'invite',
+              expertSignupEnabled: true,
+              googleClientId: '',
+            }),
+          } as Response)
+        : fallback(url, init),
+    );
+    render(
+      <MemoryRouter initialEntries={['/auth?mode=register&next=/studio']}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByLabelText('Your name')).toBeTruthy();
+    expect(
+      (screen.getByRole('combobox', { name: 'Account purpose' }) as HTMLSelectElement).value,
+    ).toBe('expert');
+    expect(
+      await screen.findByText(
+        'Expert registration is open. Your profile is published only after admin approval.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText('Our controlled beta is invitation-only.')).toBeNull();
+  });
   it('toggles password visibility without losing the draft', async () => {
     render(
       <MemoryRouter initialEntries={['/auth']}>

@@ -54,3 +54,6 @@ Native apps, chat, AI matching, subscriptions, packages, coupons, multi-currency
 ## Success and release decision
 
 Measure verified experts, profile→service→slot→payment funnel, paid booking conversion, confirmation SLA, meeting creation rate, completed sessions, refunds and customer satisfaction. Initial targets are hypotheses until beta data exists. Release is **NO-GO** until security, payment reconciliation and deployment/restore tests have evidence. The date never overrides a failed gate. Read LAUNCH_READINESS.md for the current truthful status.
+
+
+22 October 2026 signup policy clarification following repeated owner registration failures: expert self-registration is now independently configurable through EXPERT_SIGNUP_ENABLED. When enabled, uninvited users may create an expert-purpose account, verify email, sign in and submit an application. This does not approve or publish the expert. Explicit admin revocation remains enforceable. Customer signup stays invitation-only unless BETA_ACCESS_MODE is changed separately. Public expert admission is a payments-disabled onboarding mode, not live-payment release approval.

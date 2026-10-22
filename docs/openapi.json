@@ -226,7 +226,7 @@
         "tags": [
           "public"
         ],
-        "description": "Public endpoint. ",
+        "description": "Public endpoint. Includes expertSignupEnabled alongside betaAccess. Expert self-registration may be open while customer signup remains invite-only. No secrets are exposed.",
         "security": [],
         "parameters": [],
         "responses": {
@@ -433,12 +433,12 @@
     },
     "/auth/register": {
       "post": {
-        "summary": "Register an invited email",
+        "summary": "Register an account",
         "operationId": "post__auth_register",
         "tags": [
           "public"
         ],
-        "description": "Public endpoint. ",
+        "description": "Public endpoint. Customer signup follows BETA_ACCESS_MODE. When EXPERT_SIGNUP_ENABLED=true, expert-purpose accounts may register without invitation and retain access during verification/login/sessions. An explicitly revoked invitation still blocks access. Registration does not grant expert approval or admin privileges.",
         "security": [],
         "parameters": [
           {

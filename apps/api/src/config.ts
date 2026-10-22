@@ -14,6 +14,7 @@ const schema = z.object({
   MONGODB_URI: z.string().default('mongodb://127.0.0.1:27017/expert_marketplace?replicaSet=rs0'),
   AUTH_PEPPER: z.string().min(32),
   BETA_ACCESS_MODE: z.enum(['invite', 'open']).default('invite'),
+  EXPERT_SIGNUP_ENABLED: z.enum(['true', 'false']).default('false'),
   PAYMENTS_MODE: z.enum(['disabled', 'test', 'live']).default('disabled'),
   LIVE_TRANSACTIONS_ENABLED: z.string().default('false'),
   RELEASE_COMMIT: z.string().default(''),
@@ -63,6 +64,8 @@ export function paymentBlockers(c: Config): string[] {
   if (!c.RAZORPAY_KEY_ID.startsWith(c.PAYMENTS_MODE === 'live' ? 'rzp_live_' : 'rzp_test_'))
     blockers.push('Razorpay key mode mismatch');
   if (c.PAYMENTS_MODE === 'live') {
+    if (c.EXPERT_SIGNUP_ENABLED === 'true')
+      blockers.push('Public expert signup must be closed before live-payment release approval');
     if (c.LIVE_TRANSACTIONS_ENABLED !== 'true') blockers.push('Live transaction switch is off');
     if (c.BETA_ACCESS_MODE !== 'invite') blockers.push('Beta must be invite-only');
     if (!c.APP_ORIGIN.startsWith('https://')) blockers.push('HTTPS is required');

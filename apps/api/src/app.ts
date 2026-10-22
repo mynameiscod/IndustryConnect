@@ -239,6 +239,7 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
           : providerConfig.SMTP_HOST)
       ),
       betaAccess: c.BETA_ACCESS_MODE,
+      expertSignupEnabled: c.EXPERT_SIGNUP_ENABLED === 'true',
       paymentMode: c.PAYMENTS_MODE,
       checkoutEnabled: paymentBlockers(c).length === 0,
     });
@@ -246,7 +247,7 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   app.get('/api/me', requireUser, (_req, res) => res.json(publicUser(res.locals.user)));
   app.post('/api/auth/register', codeLimit, async (req, res) => {
     const data = registerInput.parse(req.body);
-    await checkInvite(c, data.email);
+    await checkInvite(c, data.email, data.accountPurpose === 'expert');
     const existing = await User.findOne({ email: data.email });
     if (!existing) {
       await User.create({
@@ -421,7 +422,11 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   });
   app.post('/api/me/email/request', requireUser, codeLimit, async (req, res) => {
     const data = z.object({ email }).strict().parse(req.body);
-    await checkInvite(c, data.email);
+    await checkInvite(
+      c,
+      data.email,
+      res.locals.user.accountPurpose === 'expert' || res.locals.user.roles.includes('expert'),
+    );
     assert(
       !(await User.exists({ email: data.email, _id: { $ne: res.locals.user._id } })),
       409,

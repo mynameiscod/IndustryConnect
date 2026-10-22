@@ -1407,7 +1407,11 @@ function AuthPage() {
   const config = useData('/config');
   const destination = searchParams.get('next') === '/studio' ? '/studio' : '/dashboard';
   const linkingEmail = searchParams.get('link') === '1' && !!user;
-  const [mode, setMode] = useState(searchParams.get('mode') === 'verify' ? 'verify' : 'login'),
+  const [mode, setMode] = useState(
+      ['verify', 'register'].includes(searchParams.get('mode') ?? '')
+        ? searchParams.get('mode')!
+        : 'login',
+    ),
     [email, setEmail] = useState(searchParams.get('email') ?? ''),
     [password, setPassword] = useState(''),
     [name, setName] = useState(''),
@@ -1592,9 +1596,11 @@ function AuthPage() {
                 to manage your bookings, appointments and more.
               </p>
               <p className="auth-beta-note">
-                {config.data?.betaAccess === 'invite'
-                  ? 'Our controlled beta is invitation-only.'
-                  : 'Find your next conversation.'}
+                {config.data?.expertSignupEnabled && destination === '/studio'
+                  ? 'Expert registration is open. Your profile is published only after admin approval.'
+                  : config.data?.betaAccess === 'invite'
+                    ? 'Our controlled beta is invitation-only.'
+                    : 'Find your next conversation.'}
               </p>
               <div className="auth-tabs" aria-label="Sign-in options">
                 {[
@@ -1622,7 +1628,7 @@ function AuthPage() {
               </div>
               {error && <Alert>{error}</Alert>}
               {notice && <Alert kind="success">{notice}</Alert>}
-              <form onSubmit={submit}>
+              <form onSubmit={submit} onInput={() => setError('')}>
                 {mode === 'register' && (
                   <Field label="I want to">
                     <select
@@ -1630,6 +1636,8 @@ function AuthPage() {
                       aria-label="Account purpose"
                       value={destination === '/studio' ? 'expert' : 'customer'}
                       onChange={(event) => {
+                        setError('');
+                        setNotice('');
                         const next = new URLSearchParams(searchParams);
                         if (event.target.value === 'expert') next.set('next', '/studio');
                         else next.delete('next');
@@ -1719,6 +1727,11 @@ function AuthPage() {
                         {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>
                     </span>
+                    {mode === 'register' && password.length > 0 && password.length < 12 && (
+                      <small role="status">
+                        Your password needs at least 12 characters; {password.length} entered.
+                      </small>
+                    )}
                   </Field>
                 )}
                 {mode === 'login' && (
