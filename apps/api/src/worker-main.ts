@@ -3,6 +3,7 @@ import { readConfig } from './config.js';
 import { connect } from './models.js';
 import { createProviders } from './providers.js';
 import { workerTick } from './worker.js';
+import { writeHeartbeat } from './worker-heartbeat.js';
 const c = readConfig();
 await connect(c.MONGODB_URI, c.NODE_ENV === 'production');
 const providers = createProviders(c);
@@ -14,6 +15,7 @@ for (const signal of ['SIGINT', 'SIGTERM'])
 while (!stopped) {
   try {
     await workerTick(providers);
+    await writeHeartbeat();
   } catch (error) {
     console.error(
       JSON.stringify({

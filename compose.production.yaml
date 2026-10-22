@@ -1,8 +1,12 @@
 name: industryconnect
+x-logging: &logging
+  driver: json-file
+  options: { max-size: '10m', max-file: '5' }
 services:
   mongo:
     image: mongo:7.0
     restart: unless-stopped
+    logging: *logging
     command: ['mongod', '--replSet', 'rs0', '--bind_ip_all', '--keyFile', '/run/mongo-key']
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
@@ -19,17 +23,24 @@ services:
     image: industryconnect:${RELEASE_TAG:?required}
     build: .
     restart: unless-stopped
+    logging: *logging
     env_file: /opt/industryconnect/secrets/app.env
     ports: ['127.0.0.1:4000:4000']
     depends_on:
-      mongo: {condition: service_healthy}
+      mongo: { condition: service_healthy }
   worker:
     image: industryconnect:${RELEASE_TAG:?required}
     restart: unless-stopped
+    logging: *logging
     command: ['node', 'apps/api/dist/worker-main.js']
     env_file: /opt/industryconnect/secrets/app.env
-    healthcheck: {disable: true}
+    healthcheck:
+      test: ['CMD', 'node', 'apps/api/dist/worker-healthcheck.js']
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
     depends_on:
-      mongo: {condition: service_healthy}
+      mongo: { condition: service_healthy }
 volumes:
   mongo_data:

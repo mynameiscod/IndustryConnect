@@ -1,0 +1,9 @@
+[Unit]
+Description=IndustryConnect health and worker alerts
+After=docker.service nginx.service
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/industryconnect/secrets/monitor.env
+ExecStart=/usr/bin/python3 /opt/industryconnect/current/ops/monitor.py
+TimeoutStartSec=180
+UMask=0077

@@ -6,6 +6,7 @@ dist/
 coverage/
 *.log
 .runtime/
+__pycache__/
 release-evidence.json
 *.tgz
 *.zip

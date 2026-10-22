@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily IndustryConnect backup at 02:30 IST
+[Timer]
+OnCalendar=*-*-* 21:00:00 UTC
+Persistent=true
+RandomizedDelaySec=0
+[Install]
+WantedBy=timers.target

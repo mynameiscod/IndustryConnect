@@ -8,6 +8,7 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
   APP_ORIGIN: z.url().default('http://localhost:5173'),
+  TRUSTED_PROXY_IP: z.union([z.ipv4(), z.ipv6(), z.literal('')]).default(''),
   MONGODB_URI: z.string().default('mongodb://127.0.0.1:27017/expert_marketplace?replicaSet=rs0'),
   AUTH_PEPPER: z.string().min(32),
   BETA_ACCESS_MODE: z.enum(['invite', 'open']).default('invite'),

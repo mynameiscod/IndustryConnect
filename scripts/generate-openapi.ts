@@ -699,7 +699,7 @@ const spec = {
     title: 'Independent Expert Marketplace API',
     version: '0.1.0',
     description:
-      'Controlled beta. Live money movement is source-locked pending release certification. All amounts are INR paise; times are UTC ISO 8601. Customer and expert session data are private.',
+      'Controlled beta. Live money movement is source-locked pending release certification. All amounts are INR paise; times are UTC ISO 8601. Customer and expert session data are private. Production client-IP rate limits trust only the configured immediate proxy; Nginx must overwrite forwarding headers. Limits are per API process.',
   },
   servers: [{ url: '/api' }],
   paths,

@@ -101,6 +101,12 @@ const servicePublic = (s: any) => ({
 
 export function createApp(c: Config, p: Providers = createProviders(c)) {
   const app = express();
+  // Trust only the configured immediate proxy, never arbitrary forwarded chains.
+  app.set(
+    'trust proxy',
+    (address: string, hop: number) =>
+      !!c.TRUSTED_PROXY_IP && hop === 0 && address.replace(/^::ffff:/, '') === c.TRUSTED_PROXY_IP,
+  );
   app.disable('x-powered-by');
   app.use(
     helmet({
