@@ -10,7 +10,6 @@ import {
   bookingInput,
   categoryInput,
   email,
-  expertInput,
   id,
   loginInput,
   pagination,
@@ -22,6 +21,7 @@ import {
 } from '@market/contracts';
 import { paymentBlockers, type Config } from './config.js';
 import { expertEarnings } from './earnings.js';
+import { submitExpert, reviewExpert, expertReadiness } from './onboarding.js';
 import { AppError, assert, type Providers, verifyHmac } from './providers.js';
 import { createRuntimeProviders } from './provider-runtime.js';
 import { sendWhatsAppTest } from './whatsapp.js';
@@ -546,31 +546,11 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   app.get('/api/expert/profile', requireUser, async (_req, res) => {
     res.json(await Expert.findOne({ userId: res.locals.user._id }));
   });
+  app.get('/api/expert/onboarding', requireUser, async (_req, res) =>
+    res.json(await expertReadiness(res.locals.user._id)),
+  );
   app.put('/api/expert/profile', requireUser, async (req, res) => {
-    assert(
-      res.locals.user.emailVerified,
-      403,
-      'VERIFY_EMAIL',
-      'Verify your email before onboarding',
-    );
-    const data = expertInput.parse(req.body);
-    assert(
-      (await Category.countDocuments({
-        _id: { $in: [...new Set(data.categories)] },
-        active: true,
-      })) === new Set(data.categories).size,
-      400,
-      'INVALID_CATEGORY',
-      'Select active categories',
-    );
-    const e = await Expert.findOneAndUpdate(
-      { userId: res.locals.user._id },
-      { $set: { ...data, verification: 'pending' }, $setOnInsert: { userId: res.locals.user._id } },
-      { upsert: true, returnDocument: 'after', runValidators: true },
-    );
-    await User.updateOne({ _id: res.locals.user._id }, { $addToSet: { roles: 'expert' } });
-    await audit(res.locals.user._id, 'expert.submit', e._id);
-    res.json(e);
+    res.json(await submitExpert(res.locals.user._id, req.body));
   });
   app.get('/api/expert/services', requireUser, async (_req, res) => {
     const e = await expertFor(res.locals.user._id);
@@ -819,16 +799,11 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
       .object({
         status: z.enum(['approved', 'rejected', 'suspended']),
         reason: z.string().trim().min(5).max(500),
+        expectedRevision: z.number().int().nonnegative(),
       })
       .strict()
       .parse(req.body);
-    const e = await Expert.findByIdAndUpdate(
-      id.parse(req.params.id),
-      { $set: { verification: data.status, reviewReason: data.reason } },
-      { returnDocument: 'after' },
-    );
-    assert(e, 404, 'NOT_FOUND', 'Expert not found');
-    await audit(res.locals.user._id, 'expert.verify', e._id, data);
+    const e = await reviewExpert(res.locals.user._id, id.parse(req.params.id), data);
     res.json(e);
   });
   app.patch('/api/admin/experts/:id/route', async (req, res) => {

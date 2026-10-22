@@ -156,6 +156,171 @@ beforeEach(async () => {
     });
   f = { customer, other, admin, expertUser, expert, category, service, slot };
 });
+describe('complete expert onboarding', () => {
+  it('registers and verifies a new account before accepting its expert application', async () => {
+    const agent = request.agent(app);
+    const email = 'new-expert@example.invalid';
+    expect(
+      (
+        await agent
+          .post('/api/auth/register')
+          .set(headers)
+          .send({ name: 'New Expert', email, password: 'a-long-test-password-123' })
+      ).status,
+    ).toBe(202);
+    const text = vi.mocked(p.sendEmail).mock.calls[0][2];
+    const code = text.match(/\b\d{6}\b/)![0];
+    expect(
+      (await agent.post('/api/auth/email/verify').set(headers).send({ email, code })).status,
+    ).toBe(200);
+    expect((await agent.get('/api/expert/onboarding')).body).toMatchObject({
+      emailVerified: true,
+      profileSubmitted: false,
+    });
+    const saved = await agent
+      .put('/api/expert/profile')
+      .set(headers)
+      .send({
+        slug: 'registered-new-expert',
+        headline: 'Experienced technology mentor',
+        bio: 'Practical guidance based on years of professional technology experience.',
+        categories: [String(f.category._id)],
+        languages: ['English'],
+        city: 'Hyderabad',
+        timezone: 'Asia/Kolkata',
+        experienceYears: 8,
+        confirmationPolicy: 'manual',
+      });
+    expect(saved.status).toBe(200);
+    expect(saved.body.verification).toBe('pending');
+    expect((await agent.get('/api/me')).body.roles).toContain('expert');
+  });
+  const profile = () => ({
+    slug: 'new-onboarding-expert',
+    headline: 'Practical technology guidance',
+    bio: 'Professional experience helping people solve technology and product challenges.',
+    categories: [String(f.category._id)],
+    languages: ['English'],
+    city: 'Hyderabad',
+    timezone: 'Asia/Kolkata',
+    experienceYears: 8,
+    confirmationPolicy: 'manual',
+  });
+  const submit = (body = profile()) =>
+    request(app)
+      .put('/api/expert/profile')
+      .set(headers)
+      .set('Cookie', 'market_session=customer')
+      .send(body);
+  const progress = () =>
+    request(app).get('/api/expert/onboarding').set('Cookie', 'market_session=customer');
+  const review = (id: string, expectedRevision: number, status = 'approved') =>
+    request(app)
+      .patch(`/api/admin/experts/${id}/verification`)
+      .set(headers)
+      .set('Cookie', 'market_session=admin')
+      .send({ expectedRevision, status, reason: 'Reviewed the professional profile evidence' });
+  it('takes a verified customer through submission, rejection, resubmission, setup and approval', async () => {
+    expect((await progress()).body).toMatchObject({
+      profileSubmitted: false,
+      listed: false,
+      verification: 'not_started',
+    });
+    const created = await submit();
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ verification: 'pending', profileRevision: 1 });
+    expect((await User.findById(f.customer._id))?.roles).toContain('expert');
+    expect((await request(app).get('/api/experts/new-onboarding-expert')).status).toBe(404);
+    expect((await review(created.body._id, 1, 'rejected')).status).toBe(200);
+    expect((await progress()).body.verification).toBe('rejected');
+    expect((await submit()).body.profileRevision).toBe(3);
+    const service = await request(app)
+      .post('/api/expert/services')
+      .set(headers)
+      .set('Cookie', 'market_session=customer')
+      .send({
+        categoryId: String(f.category._id),
+        title: 'Technology office hours',
+        description: 'A focused conversation about your technology questions.',
+        durationMinutes: 45,
+        pricePaise: 249900,
+        mode: 'online',
+        active: true,
+      });
+    expect(service.status).toBe(201);
+    const startsAt = new Date(
+      Math.ceil((Date.now() + 2 * 86400000) / 900000) * 900000,
+    ).toISOString();
+    expect(
+      (
+        await request(app)
+          .post('/api/expert/slots')
+          .set(headers)
+          .set('Cookie', 'market_session=customer')
+          .send({ serviceId: service.body._id, startsAt })
+      ).status,
+    ).toBe(201);
+    expect((await progress()).body).toMatchObject({
+      activeServices: 1,
+      openSlots: 1,
+      listed: false,
+    });
+    expect((await review(created.body._id, 3)).body).toMatchObject({
+      verification: 'approved',
+      profileRevision: 4,
+    });
+    expect((await progress()).body).toMatchObject({
+      listed: true,
+      acceptingReservations: true,
+      publicPath: '/experts/new-onboarding-expert',
+    });
+    const publicProfile = await request(app).get('/api/experts/new-onboarding-expert');
+    expect(publicProfile.status).toBe(200);
+    expect(publicProfile.body.services[0].pricePaise).toBe(249900);
+    expect(JSON.stringify(publicProfile.body)).not.toContain('reviewReason');
+    expect((await submit()).body.verification).toBe('approved');
+    expect((await submit({ ...profile(), confirmationPolicy: 'auto' })).body.verification).toBe(
+      'approved',
+    );
+    expect(
+      (await submit({ ...profile(), headline: 'Updated professional technology guidance' })).body,
+    ).toMatchObject({ verification: 'pending', profileRevision: 5 });
+    expect((await review(created.body._id, 4)).status).toBe(409);
+    expect((await request(app).get('/api/experts/new-onboarding-expert')).status).toBe(404);
+    expect((await review(created.body._id, 5, 'suspended')).status).toBe(200);
+    expect((await submit()).status).toBe(403);
+    expect((await progress()).body).toMatchObject({ verification: 'suspended', listed: false });
+  });
+  it('blocks unverified submission, protects ownership and sends only the current review update', async () => {
+    await User.updateOne({ _id: f.customer._id }, { $set: { emailVerified: false } });
+    expect((await submit()).status).toBe(403);
+    expect(await Expert.exists({ userId: f.customer._id })).toBeNull();
+    await User.updateOne({ _id: f.customer._id }, { $set: { emailVerified: true } });
+    const created = await submit();
+    const results = await Promise.all([
+      review(created.body._id, 1),
+      review(created.body._id, 1, 'rejected'),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    await processOneJob(p); // superseded pending notification is discarded
+    expect(p.sendEmail).not.toHaveBeenCalled();
+    await processOneJob(p);
+    expect(p.sendEmail).toHaveBeenCalledTimes(1);
+    expect(
+      (await request(app).get('/api/expert/profile').set('Cookie', 'market_session=other')).body,
+    ).toBeNull();
+    expect(
+      (
+        await request(app)
+          .patch(`/api/admin/experts/${created.body._id}/verification`)
+          .set(headers)
+          .set('Cookie', 'market_session=customer')
+          .send({ expectedRevision: 2, status: 'approved', reason: 'Self approved profile' })
+      ).status,
+    ).toBe(403);
+  });
+});
+
 describe('database integrity and authorization', () => {
   it('edits an owned open slot and derives its end from the service duration', async () => {
     const startsAt = new Date(+f.slot.startsAt + 900000);

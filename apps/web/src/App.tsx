@@ -201,8 +201,18 @@ function Pager({
 }
 function Protected({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { user, loading } = useContext(Auth);
+  const location = useLocation();
   if (loading) return <Loader />;
-  if (!user) return <Navigate to="/auth" replace />;
+  if (!user)
+    return (
+      <Navigate
+        to={
+          '/auth?next=' +
+          encodeURIComponent(location.pathname === '/studio' ? '/studio' : '/dashboard')
+        }
+        replace
+      />
+    );
   if (admin && !user.roles.includes('admin')) return <Empty title="Admin access required" />;
   return children;
 }
@@ -1382,7 +1392,9 @@ function AuthPage() {
   const [searchParams] = useSearchParams();
   const { user, refresh } = useContext(Auth);
   const config = useData('/config');
-  const [mode, setMode] = useState('login'),
+  const destination = searchParams.get('next') === '/studio' ? '/studio' : '/dashboard';
+  const linkingEmail = searchParams.get('link') === '1' && !!user;
+  const [mode, setMode] = useState(searchParams.get('mode') === 'verify' ? 'verify' : 'login'),
     [email, setEmail] = useState(searchParams.get('email') ?? ''),
     [password, setPassword] = useState(''),
     [name, setName] = useState(''),
@@ -1408,7 +1420,7 @@ function AuthPage() {
             try {
               await post('/auth/google', { credential: response.credential });
               await refresh();
-              navigate('/dashboard');
+              navigate(destination);
             } catch (e) {
               setError(msg(e));
             }
@@ -1436,9 +1448,9 @@ function AuthPage() {
         setMode('verify');
         setNotice('Check your email for a verification code.');
       } else if (mode === 'verify') {
-        await post('/auth/email/verify', { email, code });
+        await post(linkingEmail ? '/me/email/verify' : '/auth/email/verify', { email, code });
         await refresh();
-        navigate('/dashboard');
+        navigate(destination);
       } else if (mode === 'phone') {
         if (!sent) {
           await post('/auth/phone/request', { phone });
@@ -1447,7 +1459,7 @@ function AuthPage() {
         } else {
           await post('/auth/phone/verify', { phone, code });
           await refresh();
-          navigate('/dashboard');
+          navigate(destination);
         }
       } else if (mode === 'reset') {
         if (!sent) {
@@ -1462,7 +1474,7 @@ function AuthPage() {
       } else {
         await post('/auth/login', { email, password });
         await refresh();
-        navigate('/dashboard');
+        navigate(destination);
       }
     } catch (e) {
       setError(msg(e));
@@ -1710,14 +1722,17 @@ function AuthPage() {
                   className="btn btn-link p-0"
                   onClick={async () => {
                     try {
-                      await post('/auth/email/request', { email });
+                      await post(linkingEmail ? '/me/email/request' : '/auth/email/request', {
+                        email,
+                      });
+                      setSent(true);
                       setNotice('If eligible, a new code has been sent.');
                     } catch (e) {
                       setError(msg(e));
                     }
                   }}
                 >
-                  Resend code
+                  {linkingEmail && !sent ? 'Send verification code' : 'Resend code'}
                 </button>
               )}
               <div className="auth-divider">
@@ -2125,10 +2140,12 @@ function CategorySelect({
   value,
   onChange,
   id,
+  required = true,
 }: {
   value: string;
   onChange: (v: string) => void;
   id?: string;
+  required?: boolean;
 }) {
   const [page, setPage] = useState(1);
   const categories = useData(`/categories?limit=100&page=${page}`);
@@ -2139,7 +2156,7 @@ function CategorySelect({
         className="form-select"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        required
+        required={required}
       >
         <option value="">Select expertise</option>
         {value && !categories.data?.items.some((c: any) => c._id === value) && (
@@ -2165,26 +2182,26 @@ function CategorySelect({
   );
 }
 function Studio() {
-  const { refresh } = useContext(Auth),
+  const { refresh, user } = useContext(Auth),
     profile = useData('/expert/profile');
   const [tab, setTab] = useState('profile'),
     [notice, setNotice] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
-  async function save(e: FormEvent<HTMLFormElement>, category: string) {
+  async function save(e: FormEvent<HTMLFormElement>, categories: string[]) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     setBusy(true);
     setNotice('');
     setError('');
     try {
-      await post(
+      const saved = await post(
         '/expert/profile',
         {
           slug: f.get('slug'),
           headline: f.get('headline'),
           bio: f.get('bio'),
-          categories: [category],
+          categories,
           languages: String(f.get('languages'))
             .split(',')
             .map((v) => v.trim())
@@ -2198,7 +2215,11 @@ function Studio() {
       );
       await refresh();
       profile.reload();
-      setNotice('Profile submitted for admin review.');
+      setNotice(
+        saved.verification === 'approved'
+          ? 'Profile saved. Your approval is unchanged.'
+          : 'Profile submitted for admin review.',
+      );
     } catch (err) {
       setError(msg(err));
     } finally {
@@ -2291,6 +2312,13 @@ function Studio() {
             </div>
           </div>
         </div>
+        <OnboardingChecklist
+          user={user}
+          profile={d}
+          tab={tab}
+          setTab={setTab}
+          refreshProfile={profile.reload}
+        />
         <section className="studio-shell" aria-label="Expert workspace">
           <nav
             className="studio-tabs d-flex flex-wrap align-items-center gap-2"
@@ -2329,7 +2357,13 @@ function Studio() {
               </Alert>
             ) : (
               <div hidden={tab !== 'profile'}>
-                <StudioProfile key={d?.updatedAt ?? 'new'} profile={d} busy={busy} onSave={save} />
+                <StudioProfile
+                  key={d?.updatedAt ?? 'new'}
+                  profile={d}
+                  busy={busy}
+                  blocked={!user?.emailVerified || d?.verification === 'suspended'}
+                  onSave={save}
+                />
               </div>
             )}
             {d && tab === 'services' && (
@@ -2341,6 +2375,115 @@ function Studio() {
         </section>
       </div>
     </div>
+  );
+}
+function OnboardingChecklist({
+  user,
+  profile,
+  tab,
+  setTab,
+  refreshProfile,
+}: {
+  user: User | null;
+  profile: any;
+  tab: string;
+  setTab: (tab: string) => void;
+  refreshProfile: () => void;
+}) {
+  const status = useData<{
+    emailVerified: boolean;
+    profileSubmitted: boolean;
+    verification: string;
+    activeServices: number;
+    openSlots: number;
+    listed: boolean;
+    acceptingReservations: boolean;
+    publicPath: string | null;
+  }>('/expert/onboarding');
+  useEffect(() => {
+    status.reload();
+  }, [profile?.updatedAt, tab]);
+  const d = status.data;
+  const steps = [
+    { label: 'Verify email', done: !!user?.emailVerified, section: 'profile' },
+    { label: 'Submit profile', done: !!profile, section: 'profile' },
+    { label: 'Add an active service', done: (d?.activeServices ?? 0) > 0, section: 'services' },
+    { label: 'Add available times', done: (d?.openSlots ?? 0) > 0, section: 'availability' },
+    { label: 'Admin approval', done: profile?.verification === 'approved', section: 'profile' },
+  ];
+  return (
+    <section className="onboarding-checklist" aria-label="Expert onboarding progress">
+      <div className="d-flex flex-wrap justify-content-between gap-3 align-items-center">
+        <div>
+          <h2>Your next steps</h2>
+          <p>
+            {d?.acceptingReservations
+              ? 'Your profile is listed with available times. Payment availability is controlled separately.'
+              : d?.listed
+                ? 'Your profile is listed. Add available times so customers can reserve a session.'
+                : 'Complete your profile, services and availability. An admin must approve your profile before it is listed.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-outline-secondary"
+          onClick={() => {
+            status.reload();
+            refreshProfile();
+          }}
+          disabled={status.loading}
+        >
+          Refresh progress
+        </button>
+      </div>
+      {!user?.emailVerified && (
+        <Alert kind="info">
+          Verify your email before submitting your application.{' '}
+          <Link
+            to={
+              '/auth?mode=verify&link=1&next=/studio&email=' + encodeURIComponent(user?.email ?? '')
+            }
+          >
+            Verify or add your email
+          </Link>
+        </Alert>
+      )}
+      {profile?.verification === 'suspended' && (
+        <Alert>
+          Your profile is suspended. Contact the marketplace team; resubmission cannot restore
+          access.
+        </Alert>
+      )}
+      {profile?.verification === 'approved' && (
+        <p className="admin-muted">
+          Changes to your professional profile require a new review and hide your listing until
+          approved. Booking preference changes keep approval.
+        </p>
+      )}
+      {status.error && <Alert>{status.error}</Alert>}
+      <ol>
+        {steps.map((step, i) => (
+          <li key={step.label} className={step.done ? 'complete' : ''}>
+            <button type="button" disabled={i > 1 && !profile} onClick={() => setTab(step.section)}>
+              <span>{step.done ? <CircleCheck size={18} /> : i + 1}</span>
+              {step.label}
+              <small>
+                {step.done
+                  ? 'Complete'
+                  : i === 4 && profile?.verification === 'pending'
+                    ? 'Awaiting review'
+                    : 'Next step'}
+              </small>
+            </button>
+          </li>
+        ))}
+      </ol>
+      {d?.publicPath && (
+        <Link className="btn btn-primary" to={d.publicPath}>
+          View public profile <ArrowRight size={15} />
+        </Link>
+      )}
+    </section>
   );
 }
 function StudioSectionTitle({
@@ -2406,11 +2549,13 @@ function StudioField({
 function StudioProfile({
   profile: d,
   busy,
+  blocked,
   onSave,
 }: {
   profile: any;
   busy: boolean;
-  onSave: (e: FormEvent<HTMLFormElement>, category: string) => Promise<void>;
+  blocked: boolean;
+  onSave: (e: FormEvent<HTMLFormElement>, categories: string[]) => Promise<void>;
 }) {
   const { user } = useContext(Auth);
   const [draft, setDraft] = useState({
@@ -2423,7 +2568,9 @@ function StudioProfile({
     experienceYears: String(d?.experienceYears ?? 0),
     confirmationPolicy: d?.confirmationPolicy ?? 'manual',
   });
-  const [category, setCategory] = useState(String(d?.categories?.[0] ?? '')),
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(
+      d?.categories?.map(String) ?? [],
+    ),
     [expanded, setExpanded] = useState(false);
   const update = (key: keyof typeof draft, value: string) =>
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -2446,8 +2593,8 @@ function StudioProfile({
           description="Your profile goes live after admin verification. Update it to show your professional details."
         />
         {d?.reviewReason && <Alert kind="info">Review note: {d.reviewReason}</Alert>}
-        <form onSubmit={(e) => void onSave(e, category)} aria-label="Public profile form">
-          <fieldset disabled={busy} className="border-0 p-0 m-0">
+        <form onSubmit={(e) => void onSave(e, selectedCategories)} aria-label="Public profile form">
+          <fieldset disabled={busy || blocked} className="border-0 p-0 m-0">
             <div className="row gx-3 gy-0">
               <div className="col-md-6">
                 <StudioField
@@ -2477,7 +2624,67 @@ function StudioProfile({
                   label="Primary expertise"
                   icon={<Hexagon size={17} />}
                 >
-                  <CategorySelect id="studio-category" value={category} onChange={setCategory} />
+                  <CategorySelect
+                    id="studio-category"
+                    value={selectedCategories[0] ?? ''}
+                    onChange={(value) =>
+                      setSelectedCategories((current) => [
+                        value,
+                        ...current.slice(1).filter((item) => item !== value),
+                      ])
+                    }
+                  />
+                  {selectedCategories.length > 1 && (
+                    <ul className="list-unstyled mt-2">
+                      {selectedCategories.slice(1).map((value, index) => (
+                        <li key={value}>
+                          <label htmlFor={'extra-expertise-' + index}>
+                            Additional expertise {index + 1}
+                          </label>
+                          <CategorySelect
+                            id={'extra-expertise-' + index}
+                            value={value}
+                            onChange={(next) =>
+                              setSelectedCategories((current) => [
+                                ...new Set(
+                                  current
+                                    .map((item) => (item === value ? next : item))
+                                    .filter(Boolean),
+                                ),
+                              ])
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-link"
+                            onClick={() =>
+                              setSelectedCategories((current) =>
+                                current.filter((item) => item !== value),
+                              )
+                            }
+                          >
+                            Remove additional category {index + 1}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {selectedCategories.length < 20 && (
+                    <>
+                      <label className="mt-2" htmlFor="studio-extra-category">
+                        Add another expertise (optional)
+                      </label>
+                      <CategorySelect
+                        id="studio-extra-category"
+                        required={false}
+                        value=""
+                        onChange={(value) => {
+                          if (value)
+                            setSelectedCategories((current) => [...new Set([...current, value])]);
+                        }}
+                      />
+                    </>
+                  )}
                 </StudioField>
               </div>
               <div className="col-md-6">
@@ -4582,7 +4789,11 @@ function AdminExperts() {
     try {
       await post(
         `/admin/experts/${review.expert._id}/verification`,
-        { status: review.status, reason: reason.trim() },
+        {
+          status: review.status,
+          reason: reason.trim(),
+          expectedRevision: review.expert.profileRevision ?? 0,
+        },
         'PATCH',
       );
       setNotice(`Expert ${review.status}.`);

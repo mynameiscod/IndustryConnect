@@ -50,6 +50,7 @@ const schemas: Record<string, any> = {
       .object({
         status: z.enum(['approved', 'rejected', 'suspended']),
         reason: z.string().min(5).max(500),
+        expectedRevision: z.number().int().nonnegative(),
       })
       .strict(),
   ),
@@ -414,7 +415,26 @@ add(
 add('get', '/experts/{slug}', 'Expert storefront and verified reviews', 'public');
 add('get', '/services/{id}/slots', 'Next 100 available slots', 'public', undefined, 'Collection');
 add('get', '/expert/profile', 'Own onboarding profile or null', 'user');
-add('put', '/expert/profile', 'Submit profile for verification', 'user', 'ExpertInput');
+add(
+  'get',
+  '/expert/onboarding',
+  'Read own onboarding progress and listing readiness',
+  'user',
+  undefined,
+  'Object',
+  200,
+  'Returns emailVerified, profileSubmitted, verification, reviewReason, activeServices, openSlots, listed, acceptingReservations and publicPath. Counts only active services in active categories and open slots more than one hour ahead. Reservation readiness is separate from payment availability.',
+);
+add(
+  'put',
+  '/expert/profile',
+  'Submit profile for verification',
+  'user',
+  'ExpertInput',
+  'Object',
+  200,
+  'Verified email required. Transactionally saves profile, expert role, audit and notification outbox. New, changed professional claims and rejected resubmissions enter pending; unchanged approved profiles and confirmation-policy-only updates keep approval. Suspended profiles cannot self-resubmit. Profile revisions protect admin review.',
+);
 add('get', '/expert/services', 'Own services (first 100)', 'expert', undefined, 'Collection');
 add('post', '/expert/services', 'Create a service', 'expert', 'ServiceInput', 'Object', 201);
 add(
@@ -568,6 +588,9 @@ add(
   'Approve, reject or suspend expert',
   'admin',
   'Verification',
+  'Object',
+  200,
+  'Requires expectedRevision from the reviewed expert profile (legacy profiles use zero); stale or concurrent review returns 409. Decisions increment profileRevision and queue status email transactionally. Approval requires an active account, verified email and an active category. No automatic KYC or payment activation.',
 );
 add(
   'patch',

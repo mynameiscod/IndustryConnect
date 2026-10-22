@@ -2619,7 +2619,7 @@
         "tags": [
           "user"
         ],
-        "description": "Requires user permission and resource ownership where applicable. ",
+        "description": "Requires user permission and resource ownership where applicable. Verified email required. Transactionally saves profile, expert role, audit and notification outbox. New, changed professional claims and rejected resubmissions enter pending; unchanged approved profiles and confirmation-policy-only updates keep approval. Suspended profiles cannot self-resubmit. Profile revisions protect admin review.",
         "security": [
           {
             "Session": []
@@ -2643,6 +2643,114 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or invalid signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / invite required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "State, uniqueness or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider or release gate unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/expert/onboarding": {
+      "get": {
+        "summary": "Read own onboarding progress and listing readiness",
+        "operationId": "get__expert_onboarding",
+        "tags": [
+          "user"
+        ],
+        "description": "Requires user permission and resource ownership where applicable. Returns emailVerified, profileSubmitted, verification, reviewReason, activeServices, openSlots, listed, acceptingReservations and publicPath. Counts only active services in active categories and open slots more than one hour ahead. Reservation readiness is separate from payment availability.",
+        "security": [
+          {
+            "Session": []
+          }
+        ],
+        "parameters": [],
         "responses": {
           "200": {
             "description": "Success",
@@ -5101,7 +5209,7 @@
         "tags": [
           "admin"
         ],
-        "description": "Requires admin permission and resource ownership where applicable. ",
+        "description": "Requires admin permission and resource ownership where applicable. Requires expectedRevision from the reviewed expert profile (legacy profiles use zero); stale or concurrent review returns 409. Decisions increment profileRevision and queue status email transactionally. Approval requires an active account, verified email and an active category. No automatic KYC or payment activation.",
         "security": [
           {
             "Session": []
@@ -7948,11 +8056,17 @@
             "type": "string",
             "minLength": 5,
             "maxLength": 500
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "status",
-          "reason"
+          "reason",
+          "expectedRevision"
         ],
         "additionalProperties": false
       },

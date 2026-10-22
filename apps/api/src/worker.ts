@@ -19,7 +19,25 @@ export async function processOneJob(p: Providers) {
   );
   if (!job) return false;
   try {
-    const b = await Booking.findById(job.payload.bookingId);
+    if (job.type === 'expert-review') {
+      const expert = await Expert.findById(job.payload.expertId);
+      const owner = expert ? await User.findById(expert.userId) : null;
+      if (
+        expert &&
+        owner?.active &&
+        owner.emailVerified &&
+        owner.email &&
+        expert.profileRevision === job.payload.revision &&
+        expert.verification === job.payload.status
+      ) {
+        await p.sendEmail(
+          owner.email,
+          'IndustryConnect expert application update',
+          `Your expert application is ${expert.verification}. ${expert.reviewReason ? 'Latest review note: ' + expert.reviewReason : ''}\nOpen Expert Studio to review your next steps.`,
+        );
+      }
+    }
+    const b = job.payload.bookingId ? await Booking.findById(job.payload.bookingId) : null;
     if (job.type === 'meet' && b?.status === 'confirmed' && b.paymentStatus === 'captured') {
       const expert = await Expert.findById(b.expertId);
       const users = await User.find({

@@ -217,6 +217,65 @@ describe('expert studio', () => {
       </MemoryRouter>,
     );
   }
+  it('shows readiness from stored services and availability and links the approved public profile', async () => {
+    mockStudio();
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) =>
+      String(url) === '/api/expert/onboarding'
+        ? ({
+            ok: true,
+            json: async () => ({
+              activeServices: 1,
+              openSlots: 2,
+              listed: true,
+              acceptingReservations: true,
+              publicPath: '/experts/demo-expert',
+            }),
+          } as Response)
+        : fallback(url, init),
+    );
+    renderStudio();
+    const checklist = await screen.findByRole('region', { name: 'Expert onboarding progress' });
+    expect(
+      await within(checklist).findByText(/Your profile is listed with available times/),
+    ).toBeTruthy();
+    expect(within(checklist).getAllByText('Complete')).toHaveLength(5);
+    expect(
+      within(checklist).getByRole('link', { name: 'View public profile' }).getAttribute('href'),
+    ).toBe('/experts/demo-expert');
+  });
+  it('returns a new expert to Studio after sign-in instead of losing the onboarding destination', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let signedIn = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path === '/api/auth/login') {
+        signedIn = true;
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      if (path === '/api/me' && signedIn)
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'new',
+            name: 'New Expert',
+            emailVerified: true,
+            roles: ['customer'],
+          }),
+        } as Response;
+      if (path === '/api/expert/profile') return { ok: true, json: async () => null } as Response;
+      return fallback(url, init);
+    });
+    renderStudio();
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'expert@example.invalid' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'long-password-123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue', exact: true }));
+    expect(await screen.findByRole('form', { name: 'Public profile form' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Expert onboarding progress' })).toBeTruthy();
+  });
   it('updates the draft preview and preserves edits across tabs without autosaving', async () => {
     mockStudio();
     renderStudio();
@@ -237,6 +296,59 @@ describe('expert studio', () => {
     expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(
       0,
     );
+  });
+  it('links a phone-account email and returns to the application without changing accounts', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let verified = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path === '/api/me')
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'phone-owner',
+            name: 'Phone Expert',
+            emailVerified: verified,
+            roles: ['customer'],
+          }),
+        } as Response;
+      if (path === '/api/expert/profile') return { ok: true, json: async () => null } as Response;
+      if (path === '/api/me/email/request') return { ok: true, json: async () => ({}) } as Response;
+      if (path === '/api/me/email/verify') {
+        verified = true;
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      return fallback(url, init);
+    });
+    renderStudio();
+    await screen.findByRole('form', { name: 'Public profile form' });
+    expect(
+      (
+        screen.getByRole('button', { name: 'Submit for verification' }) as HTMLButtonElement
+      ).closest('fieldset')?.disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('link', { name: 'Verify or add your email' }));
+    await screen.findByRole('heading', { name: 'Verify your email' });
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'phone-expert@example.invalid' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(([url]) => String(url) === '/api/me/email/request'),
+      ).toBe(true),
+    );
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email', exact: true }));
+    await screen.findByRole('form', { name: 'Public profile form' });
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => String(url) === '/api/me/email/verify'),
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole('button', { name: 'Submit for verification' }) as HTMLButtonElement
+      ).closest('fieldset')?.disabled,
+    ).toBe(false);
   });
   it('submits the existing profile contract and reports pending admin review', async () => {
     mockStudio();
@@ -1190,6 +1302,7 @@ describe('expert verification workspace', () => {
     expect(JSON.parse(String(request?.[1]?.body))).toEqual({
       status: 'approved',
       reason: 'Reviewed the supplied profile evidence',
+      expectedRevision: 0,
     });
   });
 });

@@ -35,6 +35,7 @@ const expert = new Schema(
       default: 'pending',
     },
     reviewReason: String,
+    profileRevision: { type: Number, default: 0 },
     confirmationPolicy: { type: String, enum: ['auto', 'manual'], default: 'manual' },
     scheduleVersion: { type: Number, default: 0 },
     routeAccountId: String,
