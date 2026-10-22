@@ -1406,6 +1406,8 @@ function AuthPage() {
   const { user, refresh } = useContext(Auth);
   const config = useData('/config');
   const destination = searchParams.get('next') === '/studio' ? '/studio' : '/dashboard';
+  const afterSignIn = (account: any) =>
+    destination === '/dashboard' && account?.roles?.includes('admin') ? '/admin' : destination;
   const linkingEmail = searchParams.get('link') === '1' && !!user;
   const [mode, setMode] = useState(
       ['verify', 'register'].includes(searchParams.get('mode') ?? '')
@@ -1435,9 +1437,9 @@ function AuthPage() {
           nonce: nonce.nonce,
           callback: async (response: any) => {
             try {
-              await post('/auth/google', { credential: response.credential });
+              const account = await post('/auth/google', { credential: response.credential });
               await refresh();
-              navigate(destination);
+              navigate(afterSignIn(account));
             } catch (e) {
               setError(msg(e));
             }
@@ -1470,18 +1472,21 @@ function AuthPage() {
         setMode('verify');
         setNotice('Check your email for a verification code.');
       } else if (mode === 'verify') {
-        await post(linkingEmail ? '/me/email/verify' : '/auth/email/verify', { email, code });
+        const account = await post(linkingEmail ? '/me/email/verify' : '/auth/email/verify', {
+          email,
+          code,
+        });
         await refresh();
-        navigate(destination);
+        navigate(afterSignIn(account));
       } else if (mode === 'phone') {
         if (!sent) {
           await post('/auth/phone/request', { phone });
           setSent(true);
           setNotice('Enter the code sent to your phone.');
         } else {
-          await post('/auth/phone/verify', { phone, code });
+          const account = await post('/auth/phone/verify', { phone, code });
           await refresh();
-          navigate(destination);
+          navigate(afterSignIn(account));
         }
       } else if (mode === 'reset') {
         if (!sent) {
@@ -1494,9 +1499,9 @@ function AuthPage() {
           setNotice('Password updated. You can now sign in.');
         }
       } else {
-        await post('/auth/login', { email, password });
+        const account = await post('/auth/login', { email, password });
         await refresh();
-        navigate(destination);
+        navigate(afterSignIn(account));
       }
     } catch (e) {
       setError(msg(e));
@@ -4574,12 +4579,16 @@ const adminSections = [
   { id: 'policies', label: 'Policies', icon: Shield },
   { id: 'payments', label: 'Payments', icon: CreditCard },
   { id: 'reports', label: 'Reports', icon: ChartNoAxesColumnIncreasing },
+  { id: 'audit', label: 'Audit log', icon: ShieldCheck },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'invitations', label: 'Invitations', icon: Mail },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 function Admin() {
-  const [tab, setTab] = useState('overview');
+  const [adminParams, setAdminParams] = useSearchParams();
+  const tab = adminSections.some((s) => s.id === adminParams.get('section'))
+    ? adminParams.get('section')!
+    : 'overview';
   const [menuOpen, setMenuOpen] = useState(false);
   const CalloutIcon =
     tab === 'categories'
@@ -4589,8 +4598,12 @@ function Admin() {
         : tab === 'payments'
           ? WalletCards
           : ShieldCheck;
-  const selectTab = (next: string) => {
-    setTab(next);
+  const selectTab = (next: string, status?: string) => {
+    const params = new URLSearchParams(adminParams);
+    params.set('section', next);
+    if (status) params.set('status', status);
+    else if (next !== 'experts') params.delete('status');
+    setAdminParams(params);
     setMenuOpen(false);
   };
   return (
@@ -4718,7 +4731,11 @@ function Admin() {
           </nav>
         </div>
         <div className="admin-panel-content">
-          {tab === 'overview' && <AdminOverview onNavigate={selectTab} />}
+          {tab === 'overview' && (
+            <AdminOverview
+              onNavigate={(next) => selectTab(next, next === 'experts' ? 'pending' : undefined)}
+            />
+          )}
           {tab === 'experts' && <AdminExperts />}
           {tab === 'categories' && <AdminCategories />}
           {tab === 'policies' && <AdminPolicies />}
@@ -4726,7 +4743,8 @@ function Admin() {
           {tab === 'payments' && <AdminPayments />}
           {tab === 'invitations' && <Invitations />}
           {tab === 'reports' && <AdminLedger />}
-          {tab === 'notifications' && <AdminExceptions notificationsOnly />}
+          {tab === 'notifications' && <AdminNotifications />}
+          {tab === 'audit' && <AdminAudit />}
         </div>
       </div>
     </div>
@@ -4761,7 +4779,7 @@ function AdminOverview({ onNavigate }: { onNavigate: (tab: string) => void }) {
           target: 'payments',
         },
         {
-          label: 'Failed notification jobs',
+          label: 'Failed background jobs',
           value: o.data.failedJobs,
           hint: 'Needs attention',
           icon: TriangleAlert,
@@ -5016,17 +5034,33 @@ function AdminLedger() {
   );
 }
 function AdminExperts() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(
+    searchParams.get('status') ?? '',
+  )
+    ? searchParams.get('status')!
+    : 'all';
   const [page, setPage] = useState(1),
     [query, setQuery] = useState(''),
-    [status, setStatus] = useState('all'),
+    [status, setStatus] = useState(initialStatus),
     [category, setCategory] = useState(''),
     [sort, setSort] = useState('newest');
-  const [applied, setApplied] = useState(''),
+  const [applied, setApplied] = useState(
+      initialStatus === 'all'
+        ? ''
+        : new URLSearchParams({
+            q: '',
+            status: initialStatus,
+            category: '',
+            sort: 'newest',
+          }).toString(),
+    ),
     [error, setError] = useState(''),
     [notice, setNotice] = useState('');
   const [review, setReview] = useState<{ expert: any; status: string } | null>(null),
     [reason, setReason] = useState(''),
     [busy, setBusy] = useState(false);
+  const reviewDetails = useData(review ? '/admin/experts/' + review.expert._id : null);
   const [categoryPage, setCategoryPage] = useState(1),
     [categoryOptions, setCategoryOptions] = useState<any[]>([]);
   const categories = useData(`/admin/categories?page=${categoryPage}&limit=100`);
@@ -5041,12 +5075,15 @@ function AdminExperts() {
   const experts = useData(`/admin/experts?page=${page}${applied ? '&' + applied : ''}`);
   function filter(nextStatus = status) {
     setStatus(nextStatus);
+    const params = new URLSearchParams(searchParams);
+    params.set('status', nextStatus);
+    setSearchParams(params, { replace: true });
     setPage(1);
     setApplied(new URLSearchParams({ q: query, status: nextStatus, category, sort }).toString());
   }
   async function verify(event: FormEvent) {
     event.preventDefault();
-    if (!review) return;
+    if (!review || !reviewDetails.data?.expert) return;
     setBusy(true);
     setError('');
     try {
@@ -5055,11 +5092,11 @@ function AdminExperts() {
         {
           status: review.status,
           reason: reason.trim(),
-          expectedRevision: review.expert.profileRevision ?? 0,
+          expectedRevision: reviewDetails.data.expert.profileRevision ?? 0,
         },
         'PATCH',
       );
-      setNotice(`Expert ${review.status}.`);
+      setNotice(`Expert ${review.status}. Review saved; status email queued.`);
       setReview(null);
       setReason('');
       experts.reload();
@@ -5369,7 +5406,23 @@ function AdminExperts() {
                 : `${review.status === 'approved' ? 'Approve' : review.status === 'rejected' ? 'Reject' : 'Suspend'} expert`}
               : {review.expert.userId?.name}
             </h3>
-            <p>{review.expert.bio}</p>
+            {reviewDetails.loading ? (
+              <Loader />
+            ) : reviewDetails.error ? (
+              <Alert>{reviewDetails.error}</Alert>
+            ) : reviewDetails.data?.expert ? (
+              <AdminApplicationDetail data={reviewDetails.data} />
+            ) : (
+              <Alert>Application details could not be loaded.</Alert>
+            )}
+            <button
+              type="button"
+              className="btn btn-link mb-3"
+              disabled={reviewDetails.loading || busy}
+              onClick={reviewDetails.reload}
+            >
+              Refresh application details
+            </button>
             {review.status === 'details' ? (
               <button className="btn btn-outline-secondary" onClick={() => setReview(null)}>
                 Close details
@@ -5388,10 +5441,19 @@ function AdminExperts() {
                   />
                 </Field>
                 <p className="small text-body-secondary">
-                  Approval publishes the expert subject to the existing marketplace policies.
+                  Approval allows publication when an active service exists. The decision is audited
+                  and a status email is queued; email delivery is tracked separately.
                 </p>
                 <div className="d-flex gap-2">
-                  <button className="btn btn-primary" disabled={busy || reason.trim().length < 5}>
+                  <button
+                    className="btn btn-primary"
+                    disabled={
+                      busy ||
+                      reviewDetails.loading ||
+                      !reviewDetails.data?.expert ||
+                      reason.trim().length < 5
+                    }
+                  >
                     {busy ? 'Saving...' : 'Save review decision'}
                   </button>
                   <button
@@ -5409,6 +5471,280 @@ function AdminExperts() {
         )}
       </section>
     </div>
+  );
+}
+function AdminApplicationDetail({ data }: { data: any }) {
+  const e = data.expert,
+    owner = data.owner;
+  return (
+    <div className="admin-application-detail">
+      <p>
+        <strong>Current application status:</strong> {e.verification ?? 'Not supplied'}
+      </p>
+      <h4>{e.headline}</h4>
+      <p className="preserve">{e.bio}</p>
+      <dl>
+        <dt>Email</dt>
+        <dd>
+          {owner?.email ?? 'No email'} / {owner?.emailVerified ? 'Verified' : 'Not verified'}
+        </dd>
+        <dt>Account</dt>
+        <dd>{owner?.active ? 'Active' : 'Inactive'}</dd>
+        <dt>Experience / location</dt>
+        <dd>
+          {e.experienceYears ?? 'Not supplied'} years / {e.city ?? 'Not supplied'}
+        </dd>
+        <dt>Languages / timezone</dt>
+        <dd>
+          {e.languages?.join(', ') || 'Not supplied'} / {e.timezone || 'Not supplied'}
+        </dd>
+        <dt>Profile revision</dt>
+        <dd>{e.profileRevision ?? 0}</dd>
+        <dt>Categories</dt>
+        <dd>
+          {data.categories
+            ?.map((c: any) => `${c.name}${c.active ? '' : ' (inactive)'}`)
+            .join(', ') || 'None'}
+        </dd>
+        <dt>Available future slots</dt>
+        <dd>{data.openSlots}</dd>
+      </dl>
+      {e.reviewReason && (
+        <p>
+          <strong>Previous review:</strong> {e.reviewReason}
+        </p>
+      )}
+      <h4>Services</h4>
+      <p className="admin-muted">
+        Latest 100 services. A service can be prepared before profile approval.
+      </p>
+      {data.services?.length ? (
+        data.services.map((service: any) => (
+          <article className="admin-review-service" key={service._id}>
+            <strong>{service.title}</strong>
+            <p>{service.description}</p>
+            <span>
+              {formatMoney(service.pricePaise)} / {service.durationMinutes} minutes /{' '}
+              {service.mode === 'online' ? 'Online' : service.location} /{' '}
+              {service.active ? 'Active' : 'Archived'}
+            </span>
+          </article>
+        ))
+      ) : (
+        <p>No services created yet. Approval alone will not publish a listing.</p>
+      )}
+      {data.readiness?.publicPath && (
+        <Link to={data.readiness.publicPath}>
+          View published profile <ArrowUpRight size={14} />
+        </Link>
+      )}
+    </div>
+  );
+}
+function AdminAudit() {
+  const [page, setPage] = useState(1),
+    [action, setAction] = useState(''),
+    [applied, setApplied] = useState('');
+  const data = useData(`/admin/audit?page=${page}&action=${encodeURIComponent(applied)}`);
+  return (
+    <section className="admin-surface admin-page-spacing">
+      <h2>Admin audit history</h2>
+      <p>
+        Review recorded decisions and operational changes. Email delivery is tracked separately.
+      </p>
+      <form
+        className="d-flex flex-wrap gap-2 mb-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setPage(1);
+          setApplied(action);
+        }}
+      >
+        <Field label="Filter audit action">
+          <input
+            className="form-control"
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            placeholder="e.g. expert.verify"
+          />
+        </Field>
+        <button className="btn btn-primary align-self-center">Filter history</button>
+        <button
+          type="button"
+          className="btn btn-outline-secondary align-self-center"
+          onClick={data.reload}
+        >
+          Refresh history
+        </button>
+      </form>
+      {data.loading ? (
+        <Loader />
+      ) : data.error ? (
+        <Alert>{data.error}</Alert>
+      ) : data.data?.items?.length ? (
+        <div className="admin-table-scroll">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.data.items.map((row: any) => (
+                <tr key={row._id}>
+                  <td>{date(row.createdAt)}</td>
+                  <td>{row.actorId?.name ?? 'System / unavailable'}</td>
+                  <td>{row.action}</td>
+                  <td className="text-break">{row.resourceId}</td>
+                  <td>{row.details?.reason ?? row.details?.status ?? ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p>No audit records match this filter.</p>
+      )}
+      <Pager page={page} setPage={setPage} total={data.data?.total ?? 0} />
+    </section>
+  );
+}
+function AdminNotifications() {
+  const [page, setPage] = useState(1),
+    [status, setStatus] = useState('failed'),
+    [reason, setReason] = useState(''),
+    [selected, setSelected] = useState<any>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(''),
+    [notice, setNotice] = useState('');
+  const data = useData(`/admin/jobs?page=${page}&status=${status}`);
+  return (
+    <section className="admin-surface admin-page-spacing">
+      <div className="d-flex justify-content-between flex-wrap gap-2">
+        <div>
+          <h2>Notification and fulfillment jobs</h2>
+          <p>
+            Queue status describes worker processing. Confirm actual receipt in Email delivery
+            reports.
+          </p>
+        </div>
+        <Link to="/admin?section=settings">Open email delivery reports</Link>
+      </div>
+      <div className="d-flex gap-2 flex-wrap mb-3">
+        <Field label="Job status">
+          <select
+            className="form-select"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
+            {['failed', 'queued', 'running', 'done', 'all'].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <button className="btn btn-outline-secondary align-self-center" onClick={data.reload}>
+          Refresh jobs
+        </button>
+      </div>
+      {error && <Alert>{error}</Alert>}
+      {notice && <Alert kind="info">{notice}</Alert>}
+      {data.loading ? (
+        <Loader />
+      ) : data.error ? (
+        <Alert>{data.error}</Alert>
+      ) : data.data?.items?.length ? (
+        <div className="admin-notification-list">
+          {data.data.items.map((job: any) => (
+            <article key={job._id}>
+              <div>
+                <strong>{job.type}</strong>
+                <span className="badge text-bg-secondary">{job.status}</span>
+              </div>
+              <p>
+                Attempts: {job.attempts} / Created: {date(job.createdAt)}
+              </p>
+              {job.lastError && <p>Last error: {job.lastError}</p>}
+              {job.status === 'failed' &&
+                ['expert-review', 'notify', 'reminder'].includes(job.type) && (
+                  <button
+                    className="btn btn-outline-primary"
+                    disabled={busy}
+                    onClick={() => {
+                      setSelected(job);
+                      setReason('');
+                    }}
+                  >
+                    Review email retry
+                  </button>
+                )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p>No jobs match this status.</p>
+      )}
+      <Pager page={page} setPage={setPage} total={data.data?.total ?? 0} />
+      {selected && (
+        <form
+          className="admin-retry-form"
+          aria-label="Retry selected email job"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setError('');
+            setNotice('');
+            try {
+              const result = await post(`/admin/jobs/${selected._id}/retry`, { reason });
+              setNotice(result.message);
+              setSelected(null);
+              setReason('');
+              data.reload();
+            } catch (e) {
+              setError(msg(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h3>Retry email notification</h3>
+          <p>
+            Check delivery reports first: an earlier attempt may already have arrived. This queues
+            only this failed email job. Payment orders, transfers and meeting jobs cannot be retried
+            here.
+          </p>
+          <Field label="Retry reason">
+            <textarea
+              className="form-control"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              minLength={5}
+              maxLength={500}
+              required
+            />
+          </Field>
+          <button className="btn btn-primary" disabled={busy || reason.trim().length < 5}>
+            {busy ? 'Queueing...' : 'Queue email retry'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-link"
+            disabled={busy}
+            onClick={() => setSelected(null)}
+          >
+            Cancel
+          </button>
+        </form>
+      )}
+    </section>
   );
 }
 function AdminCategories() {

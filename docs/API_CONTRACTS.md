@@ -85,3 +85,9 @@ GET /expert/dashboard (authenticated) returns own minimal profile or null, onboa
 
 
 Expert self-registration: /config includes expertSignupEnabled. /auth/register allows uninvited accountPurpose=expert only when EXPERT_SIGNUP_ENABLED=true. Subsequent email verification, login and session authentication recognize this saved expert intent; approval and admin privileges are not granted. An explicit revoked Invite overrides self-registration in invitation beta. Customer admission remains unchanged. The expert registration URL accepts mode=register&next=/studio.
+
+
+Admin operations:
+GET /admin/experts/{id} returns {expert,owner,categories,services,openSlots,readiness}, with Route and password/session fields excluded; services limited to latest 100.
+GET /admin/jobs?page=1&status=failed returns paginated history without payload/key. POST /admin/jobs/{id}/retry accepts {reason} and atomically resets only failed expert-review/notify/reminder jobs, recording audit action notification.retry. Duplicate or unsupported retries return 409. This records a retry request, not delivery success; money/meeting retries are excluded.
+GET /admin/audit supports exact action filter and returns total/page plus safe actor/action/resource/timestamp and whitelisted review detail fields.

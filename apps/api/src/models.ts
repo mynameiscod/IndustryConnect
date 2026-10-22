@@ -217,6 +217,7 @@ const job = new Schema(
   opts,
 );
 job.index({ status: 1, nextRunAt: 1 });
+job.index({ status: 1, createdAt: -1, _id: -1 });
 export const User = mongoose.model('User', user);
 export const Expert = mongoose.model('Expert', expert);
 export const Category = mongoose.model(

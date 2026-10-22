@@ -596,6 +596,45 @@ add('get', '/admin/overview', 'Operations and payment blockers', 'admin');
 add('get', '/admin/exceptions', 'Refund, order, payout and failed-job queues', 'admin');
 add(
   'get',
+  '/admin/experts/{id}',
+  'Read full expert application for review',
+  'admin',
+  undefined,
+  'Object',
+  200,
+  'Returns expert profile excluding Route account fields, minimal owner account/email verification, selected categories, latest 100 services, future open slot count and listing readiness. Owner password/session data and provider credentials are excluded. Read a fresh profileRevision before recording a review.',
+);
+add(
+  'get',
+  '/admin/jobs',
+  'Read notification and fulfillment job history',
+  'admin',
+  undefined,
+  'Collection',
+  200,
+  'Returns newest-first paginated jobs, total and page. Payload and deduplication key are excluded. Job done means processing completed or was superseded, not proof of email delivery.',
+  {
+    ...pages,
+    status: {
+      type: 'string',
+      enum: ['all', 'failed', 'queued', 'running', 'done'],
+      default: 'failed',
+    },
+  },
+);
+schemas.NotificationRetry = json(z.object({ reason: z.string().trim().min(5).max(500) }).strict());
+add(
+  'post',
+  '/admin/jobs/{id}/retry',
+  'Queue one reviewed failed email notification',
+  'admin',
+  'NotificationRetry',
+  'Object',
+  200,
+  'Ten attempts/client/fifteen minutes; admin session and same-origin checks required. Only failed expert-review, notify or reminder jobs may be reset. Transactionally records the reason and queues the job. Duplicate, running, completed, meeting or unsupported operations return 409. Check delivery before retrying: an earlier attempt may already have arrived. Never retries payment orders/transfers.',
+);
+add(
+  'get',
   '/admin/experts',
   'List expert review records',
   'admin',
@@ -848,7 +887,17 @@ add(
   pages,
 );
 add('patch', '/admin/reviews/{id}', 'Moderate review with audit reason', 'admin', 'Moderation');
-add('get', '/admin/audit', 'List audit history', 'admin', undefined, 'Collection', 200, '', pages);
+add(
+  'get',
+  '/admin/audit',
+  'List audit history',
+  'admin',
+  undefined,
+  'Collection',
+  200,
+  'Returns items,total,page with actor name, action, resource, timestamp and whitelisted reason/status/type/profileRevision details. No raw integration credential payloads. Optional action is an exact match.',
+  { ...pages, action: { type: 'string', maxLength: 120 } },
+);
 const spec = {
   openapi: '3.1.0',
   info: {

@@ -105,3 +105,12 @@ Connected expert signup/dashboard acceptance (22 October 2026):
 
 
 Expert signup admission regression: with invite beta plus EXPERT_SIGNUP_ENABLED=true, a never-invited expert registers, verifies, signs in, submits a pending profile and uses own dashboard without creating an Invite record. Customer registration stays 403. Explicitly revoked expert loses its active session and cannot sign in. Direct /auth?mode=register&next=/studio opens the expert form with an open-registration explanation. Flag defaults false. Customer-purpose registration cannot bypass invitation gating.
+
+
+Admin review loop completion (22 October 2026):
+- Admin sign-in lands in /admin unless an explicit expert destination was requested. Customer/expert logins do not gain admin rights.
+- Overview pending-expert action opens a pending-filtered list. Section/status URLs survive refresh and can be shared as admin deep links.
+- Review fetches fresh application detail: owner active/verified status, professional fields, categories, latest 100 services/prices, open slot count and previous reason. No password/Route credentials are returned. Decision remains disabled until detail loads and a reason is supplied; expectedRevision comes from that displayed detail.
+- Saved decisions appear in own expert dashboard and admin audit; transactional status email outbox remains separate from actual delivery.
+- Notification history filters failed/queued/running/done jobs, excludes payloads/keys and links to email delivery reports. Manual failed-email retry requires reason, is atomic and audited, and cannot replay meeting jobs or payment operations. Duplicate retry is rejected.
+- Audit is paginated and action-filtered with actor, decision reason and resource. Automated review/notification tests use isolated Mongo and simulated email; production read-only checks do not approve applications or resend messages.

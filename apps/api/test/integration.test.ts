@@ -1377,6 +1377,131 @@ describe('email delivery reports', () => {
   });
 });
 
+describe('admin application review to audit and notification recovery', () => {
+  it('reviews a complete application and reflects the result in the expert dashboard, job history and audit', async () => {
+    const submitted = await request(app)
+      .put('/api/expert/profile')
+      .set(headers)
+      .set('Cookie', 'market_session=expert')
+      .send({
+        slug: 'test-expert',
+        headline: 'Reviewed professional technology guidance',
+        bio: 'Professional experience helping people with technology decisions and career planning.',
+        categories: [String(f.category._id)],
+        languages: ['English'],
+        city: 'Hyderabad',
+        timezone: 'Asia/Kolkata',
+        experienceYears: 8,
+        confirmationPolicy: 'auto',
+      });
+    expect(submitted.status).toBe(200);
+    const queue = await request(app)
+      .get('/api/admin/experts?status=pending')
+      .set('Cookie', 'market_session=admin');
+    expect(queue.body.total).toBe(1);
+    const detail = await request(app)
+      .get(`/api/admin/experts/${f.expert._id}`)
+      .set('Cookie', 'market_session=admin');
+    expect(detail.body.owner).toMatchObject({ emailVerified: true, active: true });
+    expect(detail.body.services[0].pricePaise).toBe(10001);
+    expect(detail.body.openSlots).toBe(1);
+    expect(JSON.stringify(detail.body)).not.toContain('passwordHash');
+    expect(JSON.stringify(detail.body)).not.toContain('routeAccountId');
+    const reviewed = await request(app)
+      .patch(`/api/admin/experts/${f.expert._id}/verification`)
+      .set(headers)
+      .set('Cookie', 'market_session=admin')
+      .send({
+        status: 'approved',
+        reason: 'Reviewed account profile and service details',
+        expectedRevision: detail.body.expert.profileRevision,
+      });
+    expect(reviewed.status).toBe(200);
+    expect(
+      (await request(app).get('/api/expert/dashboard').set('Cookie', 'market_session=expert')).body
+        .onboarding,
+    ).toMatchObject({ verification: 'approved', listed: true });
+    const jobs = await request(app)
+      .get('/api/admin/jobs?status=queued')
+      .set('Cookie', 'market_session=admin');
+    expect(jobs.body.total).toBe(2);
+    expect(JSON.stringify(jobs.body)).not.toContain('payload');
+    expect(JSON.stringify(jobs.body)).not.toContain('expertId');
+    await processOneJob(p);
+    await processOneJob(p);
+    expect(p.sendEmail).toHaveBeenCalledTimes(1);
+    const history = await request(app)
+      .get('/api/admin/audit?action=expert.verify')
+      .set('Cookie', 'market_session=admin');
+    expect(history.status).toBe(200);
+    expect(history.body.total).toBe(1);
+    expect(history.body.items[0]).toMatchObject({
+      actorId: { name: 'Admin' },
+      details: { reason: 'Reviewed account profile and service details' },
+      resourceId: String(f.expert._id),
+    });
+    const failed = await Job.create({
+      key: 'admin-review-notify-failed',
+      type: 'expert-review',
+      payload: {
+        expertId: String(f.expert._id),
+        revision: reviewed.body.profileRevision,
+        status: 'approved',
+      },
+      status: 'failed',
+      attempts: 8,
+      lastError: 'ProviderError',
+    });
+    const retry = () =>
+      request(app)
+        .post(`/api/admin/jobs/${failed._id}/retry`)
+        .set(headers)
+        .set('Cookie', 'market_session=admin')
+        .send({ reason: 'Checked delivery report before retry' });
+    expect((await retry()).body.status).toBe('queued');
+    expect((await retry()).status).toBe(409);
+    await processOneJob(p);
+    expect((await Job.findById(failed._id))?.status).toBe('done');
+    expect(p.sendEmail).toHaveBeenCalledTimes(2);
+    expect(await Audit.countDocuments({ action: 'notification.retry' })).toBe(1);
+  });
+  it('protects admin reads and excludes meeting and money jobs from retry', async () => {
+    expect(
+      (
+        await request(app)
+          .get(`/api/admin/experts/${f.expert._id}`)
+          .set('Cookie', 'market_session=customer')
+      ).status,
+    ).toBe(403);
+    expect((await request(app).get('/api/admin/jobs')).status).toBe(401);
+    const failed = await Job.create({
+      key: 'ambiguous-provider-operation',
+      type: 'meet',
+      payload: { private: 'never-returned' },
+      status: 'failed',
+      attempts: 8,
+    });
+    expect(
+      (
+        await request(app)
+          .post(`/api/admin/jobs/${failed._id}/retry`)
+          .set(headers)
+          .set('Cookie', 'market_session=admin')
+          .send({ reason: 'Cannot replay this provider operation' })
+      ).status,
+    ).toBe(409);
+    expect((await Job.findById(failed._id))?.status).toBe('failed');
+    expect(await Audit.countDocuments({ action: 'notification.retry' })).toBe(0);
+    expect(
+      (
+        await request(app)
+          .get('/api/admin/jobs?status=invalid')
+          .set('Cookie', 'market_session=admin')
+      ).status,
+    ).toBe(400);
+  });
+});
+
 describe('admin provider settings authorization', () => {
   it('requires admin password, redacts encrypted credentials, and updates public capabilities without leaking secrets', async () => {
     const fs = await import('node:fs');

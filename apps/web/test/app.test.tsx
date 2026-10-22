@@ -1445,6 +1445,24 @@ describe('expert verification workspace', () => {
           total: 1,
           summary: { pending: 1, approved: 0, total: 1, updatedThisMonth: 1 },
         };
+      else if (p === '/api/admin/experts/e1')
+        data = {
+          expert: {
+            _id: 'e1',
+            headline: 'Practical technology guidance',
+            bio: 'Review this profile evidence.',
+            profileRevision: 0,
+            experienceYears: 5,
+            city: 'Hyderabad',
+            languages: ['English'],
+            timezone: 'Asia/Kolkata',
+          },
+          owner: { email: 'expert@example.invalid', emailVerified: true, active: true },
+          categories: [{ name: 'Technology', active: true }],
+          services: [],
+          openSlots: 0,
+          readiness: { publicPath: null },
+        };
       else if (p === '/api/admin/experts/e1/verification')
         return {
           ok: !failReview,
@@ -1498,6 +1516,12 @@ describe('expert verification workspace', () => {
     fireEvent.change(screen.getByLabelText('Review reason'), {
       target: { value: 'Reviewed the supplied profile evidence' },
     });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Save review decision' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Save review decision' }));
     expect(await screen.findByText('Review could not be saved')).toBeTruthy();
     expect((screen.getByLabelText('Review reason') as HTMLTextAreaElement).value).toBe(
@@ -1511,6 +1535,199 @@ describe('expert verification workspace', () => {
       reason: 'Reviewed the supplied profile evidence',
       expectedRevision: 0,
     });
+  });
+});
+
+describe('admin review end to end', () => {
+  it('lands admins in operations, inspects service details, saves a review and displays audit history', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let signedIn = false,
+      approved = false;
+    const expert = {
+      _id: 'e1',
+      userId: { name: 'Applicant Expert', email: 'applicant@example.invalid' },
+      slug: 'applicant-expert',
+      headline: 'Experienced professional guidance',
+      bio: 'Professional experience ready for admin review.',
+      verification: 'pending',
+      profileRevision: 3,
+      categories: [{ _id: 'cat1', name: 'Technology' }],
+      createdAt: '2026-10-22T10:00:00Z',
+      experienceYears: 8,
+    };
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      let data: any;
+      if (path === '/api/auth/login') {
+        signedIn = true;
+        data = { roles: ['admin'] };
+      } else if (path === '/api/me' && signedIn)
+        data = { id: 'a1', name: 'Admin', roles: ['admin'], emailVerified: true };
+      else if (path === '/api/admin/overview')
+        data = {
+          pendingExperts: approved ? 0 : 1,
+          bookings: 0,
+          refundsRequired: 0,
+          failedJobs: 0,
+          paymentBlockers: ['Checkout is disabled'],
+          providerStatus: {},
+        };
+      else if (path === '/api/admin/exceptions') data = { bookings: [], payouts: [], jobs: [] };
+      else if (path.startsWith('/api/admin/categories?'))
+        data = { items: [{ _id: 'cat1', name: 'Technology' }], total: 1 };
+      else if (path.startsWith('/api/admin/experts?'))
+        data = {
+          items: approved ? [] : [expert],
+          total: approved ? 0 : 1,
+          summary: {
+            pending: approved ? 0 : 1,
+            approved: approved ? 1 : 0,
+            total: 1,
+            updatedThisMonth: 1,
+          },
+        };
+      else if (path === '/api/admin/experts/e1')
+        data = {
+          expert,
+          owner: { email: 'applicant@example.invalid', emailVerified: true, active: true },
+          categories: [{ name: 'Technology', active: true }],
+          services: [
+            {
+              _id: 's1',
+              title: 'Professional office hours',
+              description: 'A focused professional conversation.',
+              pricePaise: 249900,
+              durationMinutes: 45,
+              mode: 'online',
+              active: true,
+            },
+          ],
+          openSlots: 2,
+          readiness: { publicPath: null },
+        };
+      else if (path === '/api/admin/experts/e1/verification') {
+        approved = true;
+        data = { verification: 'approved', profileRevision: 4 };
+      } else if (path.startsWith('/api/admin/audit?'))
+        data = {
+          items: approved
+            ? [
+                {
+                  _id: 'audit1',
+                  actorId: { name: 'Admin' },
+                  action: 'expert.verify',
+                  resourceId: 'e1',
+                  createdAt: '2026-10-22T11:00:00Z',
+                  details: { reason: 'Reviewed application and service evidence' },
+                },
+              ]
+            : [],
+          total: approved ? 1 : 0,
+        };
+      else return fallback(url, init);
+      return { ok: true, status: 200, json: async () => data } as Response;
+    });
+    render(
+      <MemoryRouter initialEntries={['/auth']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'admin@example.invalid' },
+    });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'a-long-test-password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue', exact: true }));
+    const summary = await screen.findByRole('region', { name: 'Marketplace summary' });
+    fireEvent.click(within(summary).getByRole('button', { name: /Experts awaiting review/ }));
+    expect(await screen.findByText('Applicant Expert')).toBeTruthy();
+    expect(
+      vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('status=pending')),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Approve', exact: true }));
+    expect(await screen.findByText('Professional office hours')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Review reason'), {
+      target: { value: 'Reviewed application and service evidence' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save review decision' }));
+    expect(
+      await screen.findByText('Expert approved. Review saved; status email queued.'),
+    ).toBeTruthy();
+    const saved = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => String(url).endsWith('/e1/verification'));
+    expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({
+      expectedRevision: 3,
+      status: 'approved',
+    });
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Admin navigation' })).getByRole('button', {
+        name: 'Audit log',
+      }),
+    );
+    expect(await screen.findByText('expert.verify')).toBeTruthy();
+    expect(screen.getByText('Reviewed application and service evidence')).toBeTruthy();
+  });
+  it('opens notification history by URL and queues only an explicitly reviewed email retry', async () => {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    let queued = false;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url) === '/api/me')
+        return {
+          ok: true,
+          json: async () => ({ id: 'a1', name: 'Admin', roles: ['admin'], emailVerified: true }),
+        } as Response;
+      if (String(url).startsWith('/api/admin/jobs?'))
+        return {
+          ok: true,
+          json: async () => ({
+            items: queued
+              ? []
+              : [
+                  {
+                    _id: 'j1',
+                    type: 'expert-review',
+                    status: 'failed',
+                    attempts: 8,
+                    createdAt: '2026-10-22T10:00:00Z',
+                    lastError: 'ProviderError',
+                  },
+                ],
+            total: queued ? 0 : 1,
+          }),
+        } as Response;
+      if (String(url) === '/api/admin/jobs/j1/retry') {
+        queued = true;
+        return {
+          ok: true,
+          json: async () => ({
+            status: 'queued',
+            message: 'Email job queued for the worker. This does not confirm delivery.',
+          }),
+        } as Response;
+      }
+      return fallback(url, init);
+    });
+    render(
+      <MemoryRouter initialEntries={['/admin?section=notifications']}>
+        <App />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Review email retry' }));
+    const form = screen.getByRole('form', { name: 'Retry selected email job' });
+    expect(
+      (within(form).getByRole('button', { name: 'Queue email retry' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.change(within(form).getByLabelText('Retry reason'), {
+      target: { value: 'Checked report before retrying' },
+    });
+    fireEvent.submit(form);
+    expect(
+      await screen.findByText('Email job queued for the worker. This does not confirm delivery.'),
+    ).toBeTruthy();
   });
 });
 

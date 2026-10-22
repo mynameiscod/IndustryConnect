@@ -26,6 +26,7 @@ import { AppError, assert, type Providers, verifyHmac } from './providers.js';
 import { createRuntimeProviders } from './provider-runtime.js';
 import { sendWhatsAppTest } from './whatsapp.js';
 import { checkEmailDelivery } from './email-delivery.js';
+import { adminExpertDetail, retryNotification } from './admin-operations.js';
 import { EmailDelivery } from './models.js';
 import {
   effectiveProviderConfig,
@@ -817,6 +818,42 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
     const e = await reviewExpert(res.locals.user._id, id.parse(req.params.id), data);
     res.json(e);
   });
+  app.get('/api/admin/experts/:id', async (req, res) =>
+    res.json(await adminExpertDetail(id.parse(req.params.id))),
+  );
+  app.get('/api/admin/jobs', async (req, res) => {
+    const pg = pageMeta(req.query);
+    const status = z
+      .enum(['all', 'failed', 'queued', 'running', 'done'])
+      .default('failed')
+      .parse(req.query.status);
+    const filter = status === 'all' ? {} : { status };
+    res.json({
+      items: await Job.find(filter)
+        .select('-payload -key')
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(pg.skip)
+        .limit(pg.limit),
+      total: await Job.countDocuments(filter),
+      page: pg.page,
+    });
+  });
+  app.post(
+    '/api/admin/jobs/:id/retry',
+    rateLimit({
+      windowMs: 15 * 60000,
+      limit: 10,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+    }),
+    async (req, res) => {
+      const data = z
+        .object({ reason: z.string().trim().min(5).max(500) })
+        .strict()
+        .parse(req.body);
+      res.json(await retryNotification(res.locals.user._id, id.parse(req.params.id), data.reason));
+    },
+  );
   app.patch('/api/admin/experts/:id/route', async (req, res) => {
     const data = z
       .object({ routeAccountId: z.string().regex(/^acc_[a-zA-Z0-9]+$/), routeReady: z.boolean() })
@@ -1162,7 +1199,20 @@ export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   });
   app.get('/api/admin/audit', async (req, res) => {
     const pg = pageMeta(req.query);
-    res.json({ items: await Audit.find().sort({ createdAt: -1 }).skip(pg.skip).limit(pg.limit) });
+    const action = z.string().trim().max(120).default('').parse(req.query.action);
+    const filter = action ? { action } : {};
+    res.json({
+      items: await Audit.find(filter)
+        .select(
+          'actorId action resourceId createdAt details.reason details.status details.type details.profileRevision',
+        )
+        .populate({ path: 'actorId', model: 'User', select: 'name' })
+        .sort({ createdAt: -1, _id: -1 })
+        .skip(pg.skip)
+        .limit(pg.limit),
+      total: await Audit.countDocuments(filter),
+      page: pg.page,
+    });
   });
   if (c.NODE_ENV === 'production') {
     const webDist = fileURLToPath(new URL('../../web/dist/', import.meta.url));
