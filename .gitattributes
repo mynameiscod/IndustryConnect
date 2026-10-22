@@ -1,0 +1,2 @@
+# Linux operations files must stay executable after archives made on Windows.
+ops/** text eol=lf
