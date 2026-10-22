@@ -1,8 +1,11 @@
 import mongoose from 'mongoose';
 import { readConfig } from './config.js';
 import { connect, Job, Booking, Payout } from './models.js';
+import { effectiveProviderConfig } from './integrations.js';
 try {
-  await connect(readConfig().MONGODB_URI, true);
+  const config = readConfig();
+  effectiveProviderConfig(config); // Corrupt/unreadable integration storage becomes an operations probe alert.
+  await connect(config.MONGODB_URI, true);
   const queued = await Job.findOne({ status: 'queued' })
     .sort({ nextRunAt: 1 })
     .select('nextRunAt')

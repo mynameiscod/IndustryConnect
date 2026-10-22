@@ -69,7 +69,10 @@ export function verifyHmac(value: string | Buffer, signature: string, secret: st
   return timingSafeEqual(expected, Buffer.from(signature, 'hex'));
 }
 export function createProviders(c: Config): Providers {
-  const google = new OAuth2Client(c.GOOGLE_CLIENT_ID, c.GOOGLE_CLIENT_SECRET);
+  const google = new OAuth2Client(
+    c.GOOGLE_CALENDAR_CLIENT_ID || c.GOOGLE_CLIENT_ID,
+    c.GOOGLE_CALENDAR_CLIENT_SECRET || c.GOOGLE_CLIENT_SECRET,
+  );
   google.setCredentials({ refresh_token: c.GOOGLE_CALENDAR_REFRESH_TOKEN });
   async function request(url: string, init: RequestInit = {}) {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
@@ -96,7 +99,9 @@ export function createProviders(c: Config): Providers {
   };
   async function calendar(path: string, init: RequestInit = {}) {
     assert(
-      c.GOOGLE_CALENDAR_REFRESH_TOKEN && c.GOOGLE_CLIENT_ID && c.GOOGLE_CLIENT_SECRET,
+      c.GOOGLE_CALENDAR_REFRESH_TOKEN &&
+        (c.GOOGLE_CALENDAR_CLIENT_ID || c.GOOGLE_CLIENT_ID) &&
+        (c.GOOGLE_CALENDAR_CLIENT_SECRET || c.GOOGLE_CLIENT_SECRET),
       503,
       'CALENDAR_UNAVAILABLE',
       'Calendar organizer is not configured',
@@ -149,7 +154,10 @@ export function createProviders(c: Config): Providers {
     },
     verifyGoogle: async (token) => {
       assert(c.GOOGLE_CLIENT_ID, 503, 'GOOGLE_UNAVAILABLE', 'Google sign-in is not configured');
-      const ticket = await google.verifyIdToken({ idToken: token, audience: c.GOOGLE_CLIENT_ID });
+      const ticket = await new OAuth2Client(c.GOOGLE_CLIENT_ID).verifyIdToken({
+        idToken: token,
+        audience: c.GOOGLE_CLIENT_ID,
+      });
       const p = ticket.getPayload();
       assert(
         p?.sub && p.email && p.email_verified,

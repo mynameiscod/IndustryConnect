@@ -22,7 +22,14 @@ import {
 } from '@market/contracts';
 import { paymentBlockers, type Config } from './config.js';
 import { expertEarnings } from './earnings.js';
-import { AppError, assert, createProviders, type Providers, verifyHmac } from './providers.js';
+import { AppError, assert, type Providers, verifyHmac } from './providers.js';
+import { createRuntimeProviders } from './provider-runtime.js';
+import {
+  effectiveProviderConfig,
+  integrationMetadata,
+  parseIntegrationUpdate,
+  saveIntegration,
+} from './integrations.js';
 import {
   Audit,
   Booking,
@@ -99,7 +106,7 @@ const servicePublic = (s: any) => ({
   location: s.mode === 'in_person' ? s.location : undefined,
 });
 
-export function createApp(c: Config, p: Providers = createProviders(c)) {
+export function createApp(c: Config, p: Providers = createRuntimeProviders(c)) {
   const app = express();
   // Trust only the configured immediate proxy, never arbitrary forwarded chains.
   app.set(
@@ -213,16 +220,21 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
     legacyHeaders: false,
   });
   app.use('/api/auth', authLimit);
-  app.get('/api/config', (_req, res) =>
+  app.get('/api/config', (_req, res) => {
+    const providerConfig = effectiveProviderConfig(c);
     res.json({
-      googleClientId: c.GOOGLE_CLIENT_ID,
-      phoneEnabled: !!c.TWILIO_VERIFY_SERVICE_SID,
-      emailEnabled: !!c.SMTP_HOST,
+      googleClientId: providerConfig.GOOGLE_CLIENT_ID,
+      phoneEnabled: !!(
+        providerConfig.TWILIO_VERIFY_SERVICE_SID &&
+        providerConfig.TWILIO_ACCOUNT_SID &&
+        providerConfig.TWILIO_AUTH_TOKEN
+      ),
+      emailEnabled: !!(providerConfig.SMTP_HOST && providerConfig.EMAIL_FROM),
       betaAccess: c.BETA_ACCESS_MODE,
       paymentMode: c.PAYMENTS_MODE,
       checkoutEnabled: paymentBlockers(c).length === 0,
-    }),
-  );
+    });
+  });
   app.get('/api/me', requireUser, (_req, res) => res.json(publicUser(res.locals.user)));
   app.post('/api/auth/register', codeLimit, async (req, res) => {
     const data = registerInput.parse(req.body);
@@ -743,10 +755,9 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
       failedJobs: await Job.countDocuments({ status: 'failed' }),
       paymentBlockers: paymentBlockers(c),
       providerStatus: {
-        email: !!c.SMTP_HOST,
-        google: !!c.GOOGLE_CLIENT_ID,
-        calendar: !!c.GOOGLE_CALENDAR_REFRESH_TOKEN,
-        phone: !!c.TWILIO_VERIFY_SERVICE_SID,
+        ...Object.fromEntries(
+          integrationMetadata(c).providers.map((provider) => [provider.id, provider.configured]),
+        ),
         route: c.ROUTE_ENABLED === 'true',
       },
     }),
@@ -875,6 +886,33 @@ export function createApp(c: Config, p: Providers = createProviders(c)) {
     res.json(result);
   });
   app.get('/api/admin/settings', async (_req, res) => res.json(await ensureSettings()));
+  app.get('/api/admin/integrations', (_req, res) => res.json(integrationMetadata(c)));
+  app.put(
+    '/api/admin/integrations/:provider',
+    rateLimit({
+      windowMs: 15 * 60000,
+      limit: 10,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+    }),
+    async (req, res) => {
+      const provider = String(req.params.provider);
+      const update = parseIntegrationUpdate(provider, req.body);
+      assert(
+        await checkPassword(update.password, res.locals.user.passwordHash),
+        403,
+        'REAUTH_REQUIRED',
+        'Confirm your current admin password',
+      );
+      await audit(res.locals.user._id, 'integration.update.requested', provider, {
+        enabled: update.enabled,
+        fieldNames: Object.keys(update.fields),
+        clearedSecretNames: update.clearSecrets,
+        revision: update.revision,
+      });
+      res.json(saveIntegration(c, provider, update));
+    },
+  );
   app.put('/api/admin/settings', async (req, res) => {
     const settings = await ensureSettings();
     Object.assign(settings, settingsInput.parse(req.body));

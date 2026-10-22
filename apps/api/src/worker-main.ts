@@ -1,12 +1,12 @@
 import mongoose from 'mongoose';
 import { readConfig } from './config.js';
 import { connect } from './models.js';
-import { createProviders } from './providers.js';
+import { createRuntimeProviders } from './provider-runtime.js';
 import { workerTick } from './worker.js';
 import { writeHeartbeat } from './worker-heartbeat.js';
 const c = readConfig();
 await connect(c.MONGODB_URI, c.NODE_ENV === 'production');
-const providers = createProviders(c);
+const providers = createRuntimeProviders(c);
 let stopped = false;
 for (const signal of ['SIGINT', 'SIGTERM'])
   process.on(signal, () => {

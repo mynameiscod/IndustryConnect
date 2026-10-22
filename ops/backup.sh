@@ -15,7 +15,9 @@ trap 'rm -f -- "$archive.partial" "$configuration.partial"' EXIT
 docker exec industryconnect-mongo-1 sh -c 'exec mongodump --username root --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' \
   | gpg --batch --yes --pinentry-mode loopback --passphrase-file "$secret_dir/backup-passphrase" --symmetric --cipher-algo AES256 --compress-algo none --output "$archive.partial"
 test -s "$archive.partial"
-tar -C "$secret_dir" --exclude=backup-passphrase --exclude='*.previous.env' --exclude=compose.next.env --exclude=test-logins.json --exclude='*.js' --exclude='*.mjs' -czf - . \
+configuration_sources=()
+if [ -d /opt/industryconnect/provider-config ]; then configuration_sources=(-C /opt/industryconnect/provider-config .); fi
+tar -C "$secret_dir" --exclude=backup-passphrase --exclude='*.previous.env' --exclude=compose.next.env --exclude=test-logins.json --exclude='*.js' --exclude='*.mjs' -czf - . "${configuration_sources[@]}" \
   | gpg --batch --yes --pinentry-mode loopback --passphrase-file "$secret_dir/backup-passphrase" --symmetric --cipher-algo AES256 --compress-algo none --output "$configuration.partial"
 test -s "$configuration.partial"
 mv -- "$configuration.partial" "$configuration"

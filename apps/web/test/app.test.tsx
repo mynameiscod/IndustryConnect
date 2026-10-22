@@ -1483,3 +1483,143 @@ describe('expert detail reservation reference', () => {
     ).toBeTruthy();
   });
 });
+
+describe('admin provider configuration screen', () => {
+  function setup(fail = false) {
+    const fallback = vi.mocked(fetch).getMockImplementation()!;
+    const settings = {
+      available: true,
+      revision: 2,
+      origin: 'https://iconnect.example.invalid',
+      providers: [
+        {
+          id: 'email',
+          title: 'Email delivery',
+          help: 'Configure your SMTP sender.',
+          enabled: true,
+          configured: true,
+          fields: [
+            {
+              key: 'SMTP_HOST',
+              label: 'SMTP host',
+              type: 'text',
+              secret: false,
+              value: 'smtp.example.invalid',
+              configured: true,
+            },
+            {
+              key: 'SMTP_PASSWORD',
+              label: 'SMTP password',
+              type: 'text',
+              secret: true,
+              value: '',
+              configured: true,
+            },
+          ],
+        },
+      ],
+    };
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      const path = String(url);
+      if (path === '/api/me')
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'a1',
+            name: 'Admin',
+            roles: ['customer', 'admin'],
+            emailVerified: true,
+          }),
+        } as Response;
+      if (path === '/api/admin/overview')
+        return {
+          ok: true,
+          json: async () => ({
+            pendingExperts: 0,
+            bookings: 0,
+            refundsRequired: 0,
+            failedJobs: 0,
+            paymentBlockers: [],
+            providerStatus: {},
+          }),
+        } as Response;
+      if (path === '/api/admin/exceptions')
+        return {
+          ok: true,
+          json: async () => ({ bookings: [], payouts: [], jobs: [] }),
+        } as Response;
+      if (path === '/api/admin/integrations')
+        return { ok: true, json: async () => settings } as Response;
+      if (path === '/api/admin/integrations/email')
+        return {
+          ok: !fail,
+          status: fail ? 403 : 200,
+          json: async () =>
+            fail
+              ? { error: { message: 'Confirm your current admin password' } }
+              : { ...settings, revision: 3 },
+        } as Response;
+      return fallback(url, init);
+    });
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    );
+  }
+  async function open() {
+    await screen.findByText('No exceptions found');
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Admin navigation' })).getByRole('button', {
+        name: 'Settings',
+      }),
+    );
+    return await screen.findByRole('form', { name: 'Email delivery configuration' });
+  }
+  it('separates integrations from policies and keeps saved secrets out of inputs', async () => {
+    setup();
+    const form = await open();
+    expect(screen.getByRole('heading', { name: 'Provider configuration' })).toBeTruthy();
+    expect((within(form).getByLabelText('SMTP password') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByRole('heading', { name: 'Marketplace policies' })).toBeNull();
+    fireEvent.change(within(form).getByLabelText('Confirm admin password'), {
+      target: { value: 'admin-current-password' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save email delivery' }));
+    expect(await screen.findByText(/Configuration saved. Complete a real provider/)).toBeTruthy();
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => String(url) === '/api/admin/integrations/email');
+    const body = JSON.parse(String(call?.[1]?.body));
+    expect(body.revision).toBe(2);
+    expect(body.fields.SMTP_PASSWORD).toBe('');
+    expect(body.password).toBe('admin-current-password');
+    expect((within(form).getByLabelText('Confirm admin password') as HTMLInputElement).value).toBe(
+      '',
+    );
+  });
+  it('preserves credential drafts after failure but clears the admin reauthentication password', async () => {
+    setup(true);
+    const form = await open();
+    fireEvent.change(within(form).getByLabelText('SMTP host'), {
+      target: { value: 'new.smtp.example.invalid' },
+    });
+    fireEvent.change(within(form).getByLabelText('SMTP password'), {
+      target: { value: 'new-secret-draft' },
+    });
+    fireEvent.change(within(form).getByLabelText('Confirm admin password'), {
+      target: { value: 'wrong-password' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save email delivery' }));
+    await screen.findByText('Confirm your current admin password');
+    expect((within(form).getByLabelText('SMTP host') as HTMLInputElement).value).toBe(
+      'new.smtp.example.invalid',
+    );
+    expect((within(form).getByLabelText('SMTP password') as HTMLInputElement).value).toBe(
+      'new-secret-draft',
+    );
+    expect((within(form).getByLabelText('Confirm admin password') as HTMLInputElement).value).toBe(
+      '',
+    );
+  });
+});

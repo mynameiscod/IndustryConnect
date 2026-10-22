@@ -45,6 +45,8 @@ if (process.platform === 'linux') process.env.MONGOMS_DISTRO ??= 'ubuntu-22.04';
 const c = {
   ...readConfig(),
   NODE_ENV: 'test' as const,
+  PROVIDER_CONFIG_PATH: '',
+  PROVIDER_CONFIG_KEY: '',
   APP_ORIGIN: 'http://localhost:5173',
   BETA_ACCESS_MODE: 'open' as const,
   RAZORPAY_WEBHOOK_SECRET: 'webhook-secret',
@@ -969,5 +971,78 @@ describe('admin management lists', () => {
         .status,
     ).toBe(403);
     expect((await request(app).get('/api/admin/payments')).status).toBe(401);
+  });
+});
+
+describe('admin provider settings authorization', () => {
+  it('requires admin password, redacts encrypted credentials, and updates public capabilities without leaking secrets', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'industryconnect-provider-api-'));
+    const file = path.join(dir, 'providers.enc');
+    const configured = createApp(
+      { ...c, PROVIDER_CONFIG_PATH: file, PROVIDER_CONFIG_KEY: 'ab'.repeat(32) },
+      p,
+    );
+    await User.updateOne(
+      { _id: f.admin._id },
+      { $set: { passwordHash: await hashPassword('correct-admin-password') } },
+    );
+    const body = {
+      revision: 0,
+      enabled: true,
+      fields: {
+        TWILIO_ACCOUNT_SID: 'AC' + 'a'.repeat(32),
+        TWILIO_VERIFY_SERVICE_SID: 'VA' + 'b'.repeat(32),
+        TWILIO_AUTH_TOKEN: 'secret-token-for-test',
+      },
+      password: 'wrong-password',
+    };
+    try {
+      expect(
+        (
+          await request(configured)
+            .get('/api/admin/integrations')
+            .set('Cookie', 'market_session=customer')
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await request(configured)
+            .put('/api/admin/integrations/phone')
+            .set(headers)
+            .set('Cookie', 'market_session=admin')
+            .send(body)
+        ).status,
+      ).toBe(403);
+      expect(fs.existsSync(file)).toBe(false);
+      const saved = await request(configured)
+        .put('/api/admin/integrations/phone')
+        .set(headers)
+        .set('Cookie', 'market_session=admin')
+        .send({ ...body, password: 'correct-admin-password' });
+      expect(saved.status).toBe(200);
+      expect(JSON.stringify(saved.body)).not.toContain('secret-token-for-test');
+      expect(fs.readFileSync(file, 'utf8')).not.toContain('secret-token-for-test');
+      const publicConfig = await request(configured).get('/api/config');
+      expect(publicConfig.body.phoneEnabled).toBe(true);
+      expect(JSON.stringify(publicConfig.body)).not.toContain('secret-token-for-test');
+      const audit = await Audit.findOne({ action: 'integration.update.requested' }).lean();
+      expect(JSON.stringify(audit)).not.toContain('secret-token-for-test');
+      expect(JSON.stringify(audit)).not.toContain('correct-admin-password');
+      expect(
+        (
+          await request(configured)
+            .put('/api/admin/integrations/phone')
+            .set(headers)
+            .set('Cookie', 'market_session=admin')
+            .send({ ...body, password: 'correct-admin-password' })
+        ).status,
+      ).toBe(409);
+    } finally {
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+      fs.rmdirSync(dir);
+    }
   });
 });

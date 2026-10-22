@@ -596,6 +596,64 @@ add(
 );
 add('post', '/admin/categories', 'Create category', 'admin', 'CategoryInput', 'Object', 201);
 add('put', '/admin/categories/{id}', 'Edit or archive category', 'admin', 'CategoryInput');
+schemas.IntegrationUpdate = json(
+  z
+    .object({
+      revision: z.number().int().nonnegative(),
+      enabled: z.boolean(),
+      fields: z.record(z.string(), z.union([z.string().max(4096), z.number()])),
+      clearSecrets: z.array(z.string()).default([]),
+      password: z.string().min(1).max(256),
+    })
+    .strict(),
+);
+schemas.IntegrationUpdate.properties.password.writeOnly = true;
+schemas.IntegrationStatus = json(
+  z.object({
+    available: z.boolean(),
+    revision: z.number().int().nonnegative(),
+    origin: z.string(),
+    providers: z.array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        help: z.string(),
+        enabled: z.boolean(),
+        configured: z.boolean(),
+        fields: z.array(
+          z.object({
+            key: z.string(),
+            label: z.string(),
+            secret: z.boolean(),
+            type: z.string(),
+            value: z.string(),
+            configured: z.boolean(),
+          }),
+        ),
+      }),
+    ),
+  }),
+);
+add(
+  'get',
+  '/admin/integrations',
+  'Read redacted provider configuration',
+  'admin',
+  undefined,
+  'IntegrationStatus',
+  200,
+  'Provider IDs: email, google, calendar, phone. Secret values are always empty strings; configured flags indicate presence only, not external validation.',
+);
+add(
+  'put',
+  '/admin/integrations/{provider}',
+  'Save encrypted provider configuration',
+  'admin',
+  'IntegrationUpdate',
+  'IntegrationStatus',
+  200,
+  'Requires current admin password and matching revision. Ten update attempts per client per fifteen minutes. Field names are strictly limited by provider. Blank secrets preserve existing values; clearSecrets explicitly removes named secret fields. Enabled integrations require complete credentials. Configuration applies to API/worker operations without restart. Does not send messages, create meetings or validate external credentials. Payment settings are not accepted.',
+);
 add('get', '/admin/settings', 'Read policy defaults', 'admin');
 add(
   'put',

@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     logging: *logging
     env_file: /opt/industryconnect/secrets/app.env
+    volumes: ['/opt/industryconnect/provider-config:/run/industryconnect']
     ports: ['127.0.0.1:4000:4000']
     depends_on:
       mongo: { condition: service_healthy }
@@ -34,6 +35,7 @@ services:
     logging: *logging
     command: ['node', 'apps/api/dist/worker-main.js']
     env_file: /opt/industryconnect/secrets/app.env
+    volumes: ['/opt/industryconnect/provider-config:/run/industryconnect:ro']
     healthcheck:
       test: ['CMD', 'node', 'apps/api/dist/worker-healthcheck.js']
       interval: 30s

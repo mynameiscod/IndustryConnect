@@ -4188,7 +4188,7 @@ function Admin() {
                       experts: 'Expert verification',
                       categories: 'Organize skills, grow faster',
                       policies: 'Set fair policies',
-                      settings: 'Set fair policies',
+                      settings: 'Connect your providers',
                       payments: 'Secure & transparent payouts',
                       invitations: 'Invite trusted users',
                     }[tab]
@@ -4202,7 +4202,8 @@ function Admin() {
                       categories:
                         'Well-structured categories make it easier to find the right experts.',
                       policies: 'Manage commissions, payouts and booking rules.',
-                      settings: 'Manage commissions, payouts and booking rules.',
+                      settings:
+                        'Configure email, Google, Calendar and phone integration credentials.',
                       payments: 'Review stored payment records and reconcile provider outcomes.',
                       invitations: 'Control who can access the beta and test safely.',
                     }[tab]
@@ -4250,7 +4251,8 @@ function Admin() {
           {tab === 'overview' && <AdminOverview onNavigate={selectTab} />}
           {tab === 'experts' && <AdminExperts />}
           {tab === 'categories' && <AdminCategories />}
-          {(tab === 'policies' || tab === 'settings') && <AdminPolicies />}
+          {tab === 'policies' && <AdminPolicies />}
+          {tab === 'settings' && <AdminIntegrations />}
           {tab === 'payments' && <AdminPayments />}
           {tab === 'invitations' && <Invitations />}
           {tab === 'reports' && <AdminLedger />}
@@ -5142,6 +5144,224 @@ function AdminListCount({ page, total }: { page: number; total: number }) {
         ? `Showing ${(page - 1) * 24 + 1}-${Math.min(page * 24, total)} of ${total}`
         : 'No records'}
     </p>
+  );
+}
+type IntegrationField = {
+  key: string;
+  label: string;
+  secret: boolean;
+  type: string;
+  value: string;
+  configured: boolean;
+};
+type IntegrationProvider = {
+  id: string;
+  title: string;
+  help: string;
+  enabled: boolean;
+  configured: boolean;
+  fields: IntegrationField[];
+};
+type IntegrationSettings = {
+  available: boolean;
+  revision: number;
+  origin: string;
+  providers: IntegrationProvider[];
+};
+function AdminIntegrations() {
+  const data = useData<IntegrationSettings>('/admin/integrations');
+  if (data.loading && !data.data) return <Loader />;
+  if (data.error) return <Alert>{data.error}</Alert>;
+  if (!data.data) return null;
+  return (
+    <section className="admin-integrations admin-page-spacing">
+      <div className="admin-surface">
+        <div className="admin-page-heading">
+          <span>
+            <Settings size={28} />
+          </span>
+          <div>
+            <h2>Provider configuration</h2>
+            <p>Manage email delivery, Google sign-in, Calendar / Meet and phone OTP.</p>
+          </div>
+        </div>
+        <div className="admin-info-panel">
+          <ShieldCheck size={25} />
+          <div>
+            <h3>Credentials stay on the server</h3>
+            <p>
+              Saved secrets are encrypted and never returned to this page. Leave a secret blank to
+              keep it, or select Clear saved secret to remove it. Saving applies to the API and
+              worker without a restart. Configured does not mean externally tested.
+            </p>
+          </div>
+        </div>
+        <p className="integration-origin">
+          Application origin: <code>{data.data.origin}</code>
+        </p>
+        {!data.data.available && (
+          <Alert>
+            Encrypted integration storage is not configured on this server. An operator must
+            provision its storage path and encryption key before changes can be saved.
+          </Alert>
+        )}
+      </div>
+      <div className="integration-card-grid">
+        {data.data.providers.map((provider) => (
+          <IntegrationCard
+            key={provider.id}
+            provider={provider}
+            revision={data.data!.revision}
+            available={data.data!.available && !data.loading}
+            onSaved={data.reload}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+function IntegrationCard({
+  provider,
+  revision,
+  available,
+  onSaved,
+}: {
+  provider: IntegrationProvider;
+  revision: number;
+  available: boolean;
+  onSaved: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() =>
+      Object.fromEntries(provider.fields.map((f) => [f.key, f.value])),
+    ),
+    [enabled, setEnabled] = useState(provider.enabled),
+    [cleared, setCleared] = useState<string[]>([]),
+    [password, setPassword] = useState(''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(''),
+    [notice, setNotice] = useState('');
+  const [savedFields, setSavedFields] = useState(provider.fields);
+  const Icon =
+    provider.id === 'email'
+      ? Mail
+      : provider.id === 'google'
+        ? Globe
+        : provider.id === 'calendar'
+          ? CalendarDays
+          : Phone;
+  return (
+    <form
+      className="admin-surface integration-card"
+      aria-label={provider.title + ' configuration'}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError('');
+        setNotice('');
+        try {
+          const result = (await post(
+            '/admin/integrations/' + provider.id,
+            { revision, enabled, fields: values, clearSecrets: cleared, password },
+            'PUT',
+          )) as IntegrationSettings;
+          const updated = result.providers.find((p) => p.id === provider.id)!;
+          setSavedFields(updated.fields);
+          setValues(Object.fromEntries(updated.fields.map((f) => [f.key, f.value])));
+          setCleared([]);
+          setNotice(
+            'Configuration saved. Complete a real provider sign-in or delivery check before relying on this integration.',
+          );
+          onSaved();
+        } catch (e) {
+          setError(msg(e));
+        } finally {
+          setPassword('');
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="integration-card-heading">
+        <span>
+          <Icon size={24} />
+        </span>
+        <div>
+          <h3>{provider.title}</h3>
+          <small>
+            {provider.configured ? 'Configured / not externally validated' : 'Not connected'}
+          </small>
+        </div>
+      </div>
+      <p className="admin-muted">{provider.help}</p>
+      <label className="integration-enable">
+        <input
+          type="checkbox"
+          className="form-check-input"
+          checked={enabled}
+          disabled={busy || !available}
+          onChange={(e) => setEnabled(e.target.checked)}
+        />{' '}
+        Enable {provider.title.toLowerCase()}
+      </label>
+      {savedFields.map((field) => (
+        <div className="integration-field" key={field.key}>
+          <Field label={field.label}>
+            <input
+              className="form-control"
+              name={field.key}
+              type={field.secret ? 'password' : field.type}
+              value={values[field.key] ?? ''}
+              onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
+              autoComplete={field.secret ? 'new-password' : 'off'}
+              maxLength={4096}
+              min={field.type === 'number' ? 1 : undefined}
+              max={field.type === 'number' ? 65535 : undefined}
+              disabled={busy || !available}
+              placeholder={
+                field.secret && field.configured ? 'Saved secret - leave blank to keep' : ''
+              }
+            />
+          </Field>
+          {field.secret && (
+            <div className="integration-secret-state">
+              <span>{field.configured ? 'A secret is saved' : 'No saved secret'}</span>
+              {field.configured && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={cleared.includes(field.key)}
+                    disabled={busy || !available}
+                    onChange={(e) =>
+                      setCleared((current) =>
+                        e.target.checked
+                          ? [...current, field.key]
+                          : current.filter((k) => k !== field.key),
+                      )
+                    }
+                  />{' '}
+                  Clear saved secret: {field.label}
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+      <Field label="Confirm admin password">
+        <input
+          className="form-control"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          required
+          disabled={busy || !available}
+        />
+      </Field>
+      {error && <Alert>{error}</Alert>}
+      {notice && <Alert kind="success">{notice}</Alert>}
+      <button className="btn btn-primary w-100" disabled={busy || !available}>
+        {busy ? 'Saving...' : 'Save ' + provider.title.toLowerCase()}
+      </button>
+    </form>
   );
 }
 function AdminPolicies() {

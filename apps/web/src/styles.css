@@ -4883,3 +4883,78 @@ body {
     font-size: 17px;
   }
 }
+/* Server-side integration configuration. */
+.integration-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.integration-card {
+  min-width: 0;
+}
+.integration-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 12px;
+}
+.integration-card-heading > span {
+  display: flex;
+  padding: 12px;
+  border-radius: 50%;
+  color: #ff6938;
+  background: #fff0e6;
+}
+.integration-card-heading h3 {
+  margin: 0 0 4px;
+  font-size: 18px !important;
+}
+.integration-card-heading small {
+  color: #7c8a9e;
+  font-size: 11px;
+}
+.integration-card .form-label {
+  font-size: 12px;
+  margin-top: 17px;
+}
+.integration-card .form-control {
+  font-size: 12px;
+  min-height: 39px;
+}
+.integration-enable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  padding: 12px 0;
+  margin-bottom: 5px;
+}
+.integration-enable input {
+  margin: 0;
+}
+.integration-origin {
+  font-size: 12px;
+  color: #73839a;
+  margin-top: 15px;
+  overflow-wrap: anywhere;
+}
+.integration-secret-state {
+  font-size: 10px;
+  color: #8090a5;
+  margin-top: -8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.integration-secret-state label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 767px) {
+  .integration-card-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
